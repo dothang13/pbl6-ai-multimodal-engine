@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PBL6 Multimodal Presentation Assessment Report Schema",
+  "version": "1.0",
+  "description": "Hợp đồng dữ liệu đầu ra chuẩn hóa giữa AI Worker, Backend FastAPI và Frontend Next.js (Phụ lục A3 Kế hoạch triển khai AI PBL6)",
+  "required": [
+    "schema_version",
+    "presentation_id",
+    "status",
+    "context",
+    "analysis_status",
+    "scoring_policy",
+    "score_mapping_version",
+    "model_bundle_version",
+    "quality",
+    "metrics",
+    "rubric_scores",
+    "overall_score",
+    "events",
+    "telemetry_timeseries",
+    "feedback",
+    "performance_metrics"
+  ]
+}
+

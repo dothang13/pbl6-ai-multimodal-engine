@@ -1,6 +1,33 @@
 {
-  "architecture": "CatBoost Multi-Criteria Regressor (123D Multimodal Vector)",
+  "architecture": "CatBoost Multi-Criteria Regressor (Speaker-Disjoint GroupKFold)",
+  "evaluation_note": "Đánh giá bằng GroupKFold theo speaker_id trên các video thực tế chưa từng thấy khi train.",
   "num_features": 123,
+  "core_feature_columns": [
+    "ctx_01_do_an",
+    "ctx_02_hung_bien",
+    "ctx_03_pitching",
+    "vis_01_face_presence_ratio",
+    "vis_02_eye_contact_ratio",
+    "vis_15_head_deviation_mean",
+    "vis_16_head_deviation_std",
+    "vis_17_posture_violation_ratio",
+    "vis_18_head_jitter_yaw",
+    "vis_19_head_jitter_pitch",
+    "vis_29_gaze_deviation_ratio",
+    "vis_10_smile_active_ratio",
+    "vis_53_framing_sway_x_std",
+    "vis_55_facial_energy_index",
+    "aud_01_wpm_speech_rate",
+    "aud_02_articulation_rate_wpm",
+    "aud_03_pause_duration_ratio",
+    "aud_04_dead_air_ratio",
+    "aud_05_filler_words_per_min",
+    "aud_18_f0_p50_hz",
+    "aud_21_f0_iqr_hz",
+    "aud_24_voiced_fraction",
+    "aud_31_rms_dynamic_range_db",
+    "aud_32_pause_count_per_min"
+  ],
   "feature_columns_123d": [
     "ctx_01_do_an",
     "ctx_02_hung_bien",
@@ -135,49 +162,98 @@
     "overall_score"
   ],
   "real_videos_count": 32,
-  "total_training_samples": 599,
+  "total_training_samples": 320,
+  "baseline_comparison_b0_to_b4": {
+    "B0_Median": {
+      "mae": 3.97,
+      "rmse": 4.569,
+      "r2": -0.1793,
+      "spearman_r": -0.3242,
+      "n_real_speakers": 31
+    },
+    "B1_SRS_Rule": {
+      "mae": 0.0,
+      "rmse": 0.0,
+      "r2": 1.0,
+      "spearman_r": 1.0,
+      "n_real_speakers": 31
+    },
+    "B2_Ridge_Core": {
+      "mae": 1.341,
+      "rmse": 1.715,
+      "r2": 0.8339,
+      "spearman_r": 0.9226,
+      "n_real_speakers": 31
+    },
+    "B3_CatBoost_Core": {
+      "mae": 2.089,
+      "rmse": 2.555,
+      "r2": 0.6312,
+      "spearman_r": 0.8391,
+      "n_real_speakers": 31
+    },
+    "B4_CatBoost_123D": {
+      "mae": 2.662,
+      "rmse": 3.098,
+      "r2": 0.4579,
+      "spearman_r": 0.7613,
+      "n_real_speakers": 31
+    }
+  },
   "metrics_5fold_cv": {
     "eye_contact_score": {
       "model_file": "catboost_eye_contact_score.cbm",
-      "cv5_rmse": 0.903,
-      "cv5_mae": 0.541,
-      "cv5_r2": 0.9895,
-      "train_time_sec": 16.71
+      "cv_scheme": "Speaker_Disjoint_GroupKFold_5Fold_EvalOnRealOnly",
+      "cv5_rmse": 3.253,
+      "cv5_mae": 2.112,
+      "cv5_mae_std": 0.767,
+      "cv5_r2": 0.3369,
+      "train_time_sec": 12.26
     },
     "head_posture_score": {
       "model_file": "catboost_head_posture_score.cbm",
-      "cv5_rmse": 1.213,
-      "cv5_mae": 0.869,
-      "cv5_r2": 0.9845,
-      "train_time_sec": 16.3
+      "cv_scheme": "Speaker_Disjoint_GroupKFold_5Fold_EvalOnRealOnly",
+      "cv5_rmse": 3.263,
+      "cv5_mae": 2.425,
+      "cv5_mae_std": 1.055,
+      "cv5_r2": 0.8755,
+      "train_time_sec": 11.56
     },
     "facial_expression_score": {
       "model_file": "catboost_facial_expression_score.cbm",
-      "cv5_rmse": 1.302,
-      "cv5_mae": 0.865,
-      "cv5_r2": 0.9673,
-      "train_time_sec": 16.27
+      "cv_scheme": "Speaker_Disjoint_GroupKFold_5Fold_EvalOnRealOnly",
+      "cv5_rmse": 4.02,
+      "cv5_mae": 3.095,
+      "cv5_mae_std": 1.633,
+      "cv5_r2": 0.6307,
+      "train_time_sec": 11.35
     },
     "speech_rate_score": {
       "model_file": "catboost_speech_rate_score.cbm",
-      "cv5_rmse": 1.574,
-      "cv5_mae": 1.053,
-      "cv5_r2": 0.976,
-      "train_time_sec": 16.64
+      "cv_scheme": "Speaker_Disjoint_GroupKFold_5Fold_EvalOnRealOnly",
+      "cv5_rmse": 4.807,
+      "cv5_mae": 3.696,
+      "cv5_mae_std": 0.946,
+      "cv5_r2": 0.203,
+      "train_time_sec": 11.44
     },
     "filler_control_score": {
       "model_file": "catboost_filler_control_score.cbm",
-      "cv5_rmse": 1.002,
-      "cv5_mae": 0.526,
-      "cv5_r2": 0.9902,
-      "train_time_sec": 16.2
+      "cv_scheme": "Speaker_Disjoint_GroupKFold_5Fold_EvalOnRealOnly",
+      "cv5_rmse": 2.136,
+      "cv5_mae": 1.563,
+      "cv5_mae_std": 0.794,
+      "cv5_r2": 0.8299,
+      "train_time_sec": 11.43
     },
     "overall_score": {
       "model_file": "catboost_overall_score.cbm",
-      "cv5_rmse": 1.195,
-      "cv5_mae": 0.927,
-      "cv5_r2": 0.9283,
-      "train_time_sec": 29.69
+      "cv_scheme": "Speaker_Disjoint_GroupKFold_5Fold_EvalOnRealOnly",
+      "cv5_rmse": 2.666,
+      "cv5_mae": 2.162,
+      "cv5_mae_std": 0.412,
+      "cv5_r2": 0.5256,
+      "train_time_sec": 11.69
     }
   }
 }

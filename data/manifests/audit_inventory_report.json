@@ -1,0 +1,24 @@
+{
+  "cleaned_temp_items": [],
+  "presentation_corpus_total": 32,
+  "presentation_splits": {
+    "train": 23,
+    "dev": 4,
+    "test": 4,
+    "excluded": 1
+  },
+  "weights_audit": {
+    "whisper_lora_adapter": {
+      "path": "weights/whisper_lora_vietnamese/adapter_model.safetensors",
+      "exists": true,
+      "current_base_model_in_config": "openai/whisper-small",
+      "lora_rank": 16,
+      "audit_note": "CẢNH BÁO: Trọng số hiện tại đang gắn với 'openai/whisper-small'. Cần chạy lại Notebook Colab/train_whisper_lora.py để cập nhật sang 'vinai/PhoWhisper-small'!"
+    },
+    "face_landmarker": {
+      "path": "weights/face_landmarker.task",
+      "exists": true,
+      "sha256_short": "64184e229b263107"
+    }
+  }
+}

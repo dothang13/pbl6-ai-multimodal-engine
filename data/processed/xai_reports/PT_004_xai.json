@@ -1,14 +1,14 @@
 {
   "video_id": "PT_004",
   "context": "pitching",
-  "base_score_phi0": 77.91,
+  "base_score_phi0": 77.97,
   "predicted_scores": {
-    "eye_contact_score": 70.08,
-    "head_posture_score": 59.92,
-    "facial_expression_score": 79.57,
-    "speech_rate_score": 77.02,
-    "filler_control_score": 84.76,
-    "overall_score": 74.56
+    "eye_contact_score": 69.71,
+    "head_posture_score": 60.09,
+    "facial_expression_score": 79.31,
+    "speech_rate_score": 77.51,
+    "filler_control_score": 84.78,
+    "overall_score": 74.8
   },
   "ground_truth_scores": {
     "eye_contact_score": 69.91,
@@ -20,34 +20,34 @@
   },
   "top_penalties_shap": [
     {
-      "feature": "ctx_03_pitching",
-      "feature_vi": "ctx_03_pitching",
-      "value": 1.0,
-      "shap_impact": -0.76
+      "feature": "vis_39_jaw_open_mean",
+      "feature_vi": "vis_39_jaw_open_mean",
+      "value": 0.012,
+      "shap_impact": -0.91
     },
     {
       "feature": "vis_18_head_jitter_yaw",
       "feature_vi": "vis_18_head_jitter_yaw",
       "value": 5.83,
-      "shap_impact": -0.5
-    },
-    {
-      "feature": "aud_05_filler_words_per_min",
-      "feature_vi": "Tần suất phát âm từ đệm (ờ, à, ừm) mỗi phút",
-      "value": 3.864,
-      "shap_impact": -0.44
-    },
-    {
-      "feature": "vis_19_head_jitter_pitch",
-      "feature_vi": "vis_19_head_jitter_pitch",
-      "value": 2.158,
-      "shap_impact": -0.38
+      "shap_impact": -0.76
     },
     {
       "feature": "vis_17_posture_violation_ratio",
       "feature_vi": "Tỷ lệ thời gian nghiêng/cúi đầu vượt ngưỡng 15°",
       "value": 0.562,
-      "shap_impact": -0.31
+      "shap_impact": -0.64
+    },
+    {
+      "feature": "vis_40_jaw_open_std",
+      "feature_vi": "vis_40_jaw_open_std",
+      "value": 0.021,
+      "shap_impact": -0.21
+    },
+    {
+      "feature": "vis_19_head_jitter_pitch",
+      "feature_vi": "vis_19_head_jitter_pitch",
+      "value": 2.158,
+      "shap_impact": -0.17
     }
   ],
   "top_strengths_shap": [
@@ -55,25 +55,31 @@
       "feature": "vis_29_gaze_deviation_ratio",
       "feature_vi": "Tỷ lệ thời gian nhìn lệch khỏi vùng trung tâm",
       "value": 0.531,
-      "shap_impact": 0.79
+      "shap_impact": 0.58
     },
     {
-      "feature": "aud_04_dead_air_ratio",
-      "feature_vi": "Tỷ lệ khoảng lặng chết (> 2.5 giây)",
-      "value": 0.0,
-      "shap_impact": 0.25
+      "feature": "vis_04_head_yaw_std",
+      "feature_vi": "vis_04_head_yaw_std",
+      "value": 22.404,
+      "shap_impact": 0.16
     },
     {
-      "feature": "vis_09_smile_au12_mean",
-      "feature_vi": "vis_09_smile_au12_mean",
-      "value": 0.098,
-      "shap_impact": 0.06
+      "feature": "vis_22_blink_score_mean",
+      "feature_vi": "vis_22_blink_score_mean",
+      "value": 0.273,
+      "shap_impact": 0.1
+    },
+    {
+      "feature": "vis_15_head_deviation_mean",
+      "feature_vi": "Độ lệch góc tư thế đầu trung bình (Yaw/Pitch/Roll)",
+      "value": 22.882,
+      "shap_impact": 0.09
     },
     {
       "feature": "vis_32_smile_au12_max",
       "feature_vi": "vis_32_smile_au12_max",
       "value": 0.93,
-      "shap_impact": 0.05
+      "shap_impact": 0.08
     }
   ]
 }

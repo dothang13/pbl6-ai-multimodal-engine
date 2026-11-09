@@ -31,14 +31,17 @@ catboost_info/
 lightning_logs/
 *.tfevents.*
 
-# Temporary / OS Files
+# Temporary / OS Files / Archives
 .DS_Store
 Thumbs.db
 *.tmp
 *.temp.*
+*.zip
 temp_*/
 backup_*/
 data/processed/temp_eval/
+data/processed/temp_live_recording/
+data/processed/temp_live_speech/
 
 # IDE & Editors
 .vscode/
@@ -47,11 +50,12 @@ data/processed/temp_eval/
 *.swo
 
 # S3 / MinIO local buckets & Large Video / Audio binaries (Bỏ qua khi push code lên Git vì > 1GB)
-data/raw/DUT-PresCorpus/**/*.mp4
-data/raw/DUT-PresCorpus/**
-data/processed/audio_16k/**/*.wav
+data/raw/**
+!data/raw/**/.gitkeep
 data/processed/audio_16k/**
-data/public_datasets/**
-!data/raw/DUT-PresCorpus/**/.gitkeep
 !data/processed/audio_16k/**/.gitkeep
-
+data/processed/dut_speech_16k/**/*.wav
+data/public_datasets/**
+*.zip
+*.cbm
+weights/face_landmarker.task

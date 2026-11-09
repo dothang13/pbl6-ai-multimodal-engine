@@ -1,14 +1,14 @@
 {
   "video_id": "DA_006",
   "context": "do_an",
-  "base_score_phi0": 77.91,
+  "base_score_phi0": 77.97,
   "predicted_scores": {
-    "eye_contact_score": 85.64,
-    "head_posture_score": 90.16,
-    "facial_expression_score": 85.78,
-    "speech_rate_score": 82.41,
-    "filler_control_score": 95.95,
-    "overall_score": 87.73
+    "eye_contact_score": 85.76,
+    "head_posture_score": 89.7,
+    "facial_expression_score": 85.07,
+    "speech_rate_score": 82.38,
+    "filler_control_score": 96.0,
+    "overall_score": 88.07
   },
   "ground_truth_scores": {
     "eye_contact_score": 85.71,
@@ -18,44 +18,37 @@
     "filler_control_score": 96.0,
     "overall_score": 87.86
   },
-  "top_penalties_shap": [
-    {
-      "feature": "aud_01_wpm_speech_rate",
-      "feature_vi": "Tốc độ nói trung bình (Words Per Minute - WPM)",
-      "value": 91.025,
-      "shap_impact": -0.75
-    }
-  ],
+  "top_penalties_shap": [],
   "top_strengths_shap": [
     {
       "feature": "vis_02_eye_contact_ratio",
       "feature_vi": "Tỷ lệ duy trì giao tiếp ánh mắt với camera",
       "value": 0.708,
-      "shap_impact": 2.7
-    },
-    {
-      "feature": "aud_05_filler_words_per_min",
-      "feature_vi": "Tần suất phát âm từ đệm (ờ, à, ừm) mỗi phút",
-      "value": 0.5,
       "shap_impact": 1.17
     },
     {
-      "feature": "vis_29_gaze_deviation_ratio",
-      "feature_vi": "Tỷ lệ thời gian nhìn lệch khỏi vùng trung tâm",
-      "value": 0.5,
-      "shap_impact": 0.84
+      "feature": "vis_39_jaw_open_mean",
+      "feature_vi": "vis_39_jaw_open_mean",
+      "value": 0.111,
+      "shap_impact": 0.79
     },
     {
-      "feature": "vis_10_smile_active_ratio",
-      "feature_vi": "Tần suất biểu cảm nụ cười tích cực (Action Unit AU12)",
-      "value": 0.417,
-      "shap_impact": 0.74
+      "feature": "vis_17_posture_violation_ratio",
+      "feature_vi": "Tỷ lệ thời gian nghiêng/cúi đầu vượt ngưỡng 15°",
+      "value": 0.167,
+      "shap_impact": 0.63
     },
     {
       "feature": "vis_18_head_jitter_yaw",
       "feature_vi": "vis_18_head_jitter_yaw",
       "value": 1.564,
-      "shap_impact": 0.54
+      "shap_impact": 0.62
+    },
+    {
+      "feature": "vis_29_gaze_deviation_ratio",
+      "feature_vi": "Tỷ lệ thời gian nhìn lệch khỏi vùng trung tâm",
+      "value": 0.5,
+      "shap_impact": 0.53
     }
   ]
 }

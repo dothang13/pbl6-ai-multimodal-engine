@@ -35,6 +35,13 @@ FILLER_WORDS = [
     "ờm", "thì", "kiểu", "ấy", "nói chung là"
 ]
 
+# Prompt mớm ngữ cảnh cho Whisper: Bắt buộc giữ từ đệm & nhận diện phương ngữ Việt Nam
+DEFAULT_INITIAL_PROMPT = (
+    "Sau đây là bài thuyết trình của sinh viên Trường Đại học Bách Khoa, Đại học Đà Nẵng (DUT). "
+    "Bài nói mang ngữ điệu tự nhiên đa vùng miền (miền Trung, Đà Nẵng, Quảng Nam, Quảng Ngãi, Huế hoặc miền Bắc, miền Nam), "
+    "chứa các thuật ngữ công nghệ thông tin và giữ nguyên vẹn các từ đệm ngập ngừng: à, ờ, ừm, ừ, kiểu như, thì là, nói chung là, dạ."
+)
+
 TEMP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "processed", "temp_live_speech")
 os.makedirs(TEMP_DIR, exist_ok=True)
 LAST_RECORDING_PATH = os.path.join(TEMP_DIR, "last_recording.wav")
@@ -76,19 +83,19 @@ def record_until_keypress(sample_rate=16000, device_index=None):
             rms_val = current_rms[0]
             # Chuẩn hóa giá trị RMS từ 0.0 -> 0.15 thành mức hiển thị 0 -> meter_len
             scaled = min(int((rms_val / 0.10) * meter_len), meter_len)
-            bar = "█" * scaled + "░" * (meter_len - scaled)
+            bar = "=" * scaled + "-" * (meter_len - scaled)
             pct = min(int((rms_val / 0.10) * 100), 100)
-            status_text = "🟢 Đang nghe rõ" if scaled > 1 else "⚪ Chưa có tiếng"
-            sys.stdout.write(f"\r🎙️ [MIC LIVE] [{bar}] {pct:3d}% | {status_text} (Nhấn ENTER để dừng)...")
+            status_text = "[SIGNAL OK]" if scaled > 1 else "[NO SIGNAL]"
+            sys.stdout.write(f"\r[MIC LIVE] [{bar}] {pct:3d}% | {status_text} (Nhan ENTER de dung)...")
             sys.stdout.flush()
             time.sleep(0.08)
 
     with stream:
         print("\n" + "=" * 75)
-        print("🔴 MICROPHONE BẮT ĐẦU THU ÂM! HÃY NÓI TỰ NHIÊN...")
-        print("   >> Thắng hãy nói bình thường, chêm từ đệm hoặc thuật ngữ tuỳ ý.")
-        print("   >> Quan sát thanh mức âm lượng bên dưới để chắc chắn mic nhận tín hiệu.")
-        print("   >> KHI NÓI XONG, NHẤN PHÍM [ENTER] ĐỂ BÓC BĂNG NGAY!")
+        print("[RECORDING] MICROPHONE DANG THU AM. VUI LONG NOI TU NHIEN...")
+        print("   >> Noi binh thuong, chem tu dem va thuat ngu tuy y.")
+        print("   >> Quan sat thanh do am luong de dam bao tin hieu ro.")
+        print("   >> KHI NOI XONG, NHAN PHIM [ENTER] DE DUNG VA XU LY.")
         print("=" * 75)
 
         meter_thread = threading.Thread(target=vu_meter_worker, daemon=True)
@@ -146,25 +153,27 @@ def analyze_transcript(text, duration_sec):
     }
 
 
-def live_push_to_talk(model_size="base", device_index=None):
+def live_push_to_talk(model_size="base", device_index=None, initial_prompt=DEFAULT_INITIAL_PROMPT):
     print("=" * 75)
-    print("   CHƯƠNG TRÌNH TEST NÓI TRỰC TIẾP VỚI MICRO - PBL6 SPEECH ENGINE (v2.0)")
+    print("   CHƯƠNG TRÌNH TEST NÓI TRỰC TIẾP VỚI MICRO - PBL6 SPEECH ENGINE (v2.1)")
     print("=" * 75)
+    if initial_prompt:
+        print(f"[PROMPT CONDITIONING KICH HOAT]:\n   \"{initial_prompt}\"\n")
 
     model = load_model(model_size=model_size)
 
     session_count = 1
     while True:
-        print(f"\n--- [LƯỢT NÓI #{session_count}] ---")
-        print("👉 Nhấn [ENTER] để BẮT ĐẦU NÓI (hoặc gõ 'q' rồi Enter để thoát): ", end="")
+        print(f"\n--- [LUOT NOI #{session_count}] ---")
+        print("[ACTION] Nhan [ENTER] de BAT DAU NOI (hoac go 'q' roi Enter de thoat): ", end="")
         user_choice = input().strip()
         if user_choice.lower() == 'q':
-            print("\n[+] Đã kết thúc phiên kiểm thử giọng nói. Chúc Thắng làm đồ án thật tốt!")
+            print("\n[+] Ket thuc phien kiem thu giong noi.")
             break
 
         audio_raw, duration_sec = record_until_keypress(device_index=device_index)
         if audio_raw is None or duration_sec < 0.8:
-            print("[!] Đoạn nói quá ngắn hoặc chưa thu được tín hiệu âm thanh. Vui lòng thử lại!")
+            print("[!] Doan noi qua ngan hoac chua thu duoc tin hieu. Vui long thu lai!")
             continue
 
         # Chuẩn hóa âm lượng chống mic nhỏ
@@ -173,28 +182,32 @@ def live_push_to_talk(model_size="base", device_index=None):
         # Lưu file WAV để kiểm tra lại khi cần
         try:
             sf.write(LAST_RECORDING_PATH, audio_norm, 16000)
-            saved_msg = f" (Đã lưu tại: {os.path.basename(LAST_RECORDING_PATH)})"
+            saved_msg = f" (Saved: {os.path.basename(LAST_RECORDING_PATH)})"
         except Exception:
             saved_msg = ""
 
-        print(f"[*] Thu âm: {duration_sec:.2f}s | Biên độ cực đại: {peak:.4f} | RMS: {rms:.4f} | Tự động cân bằng: {boost_factor:.1f}x{saved_msg}")
+        print(f"[*] Thu am: {duration_sec:.2f}s | Peak: {peak:.4f} | RMS: {rms:.4f} | Gain Boost: {boost_factor:.1f}x{saved_msg}")
         
         if peak < 0.001:
-            print("⚠️ CẢNH BÁO: Tín hiệu âm thanh từ Microphone quá nhỏ (< 0.001)!")
-            print("   -> Thắng hãy kiểm tra xem mic laptop có đang bị tắt (Mute) hoặc âm lượng trong Windows Sound Settings đang ở mức thấp.")
-            print("   -> Bách vẫn sẽ tiếp tục chuyển thành văn bản...")
+            print("[WARNING] Tin hieu am thanh tu Microphone qua nho (< 0.001)!")
+            print("   -> Kiem tra xem mic co dang bi Mute hoac am luong trong Windows Sound Settings qua thap.")
+            print("   -> He thong van tiep tuc phien am...")
 
-        print("[*] Đang bóc băng bằng Faster-Whisper...")
+        print("[*] Dang boc bang bang Faster-Whisper...")
         t_infer0 = time.perf_counter()
 
-        # Tắt vad_filter=False để Whisper không nuốt từ khi mic thu âm nhỏ
+        # Bóc băng với prompt gợi ý + chống lặp từ (repetition penalty) + VAD
         segments, info = model.transcribe(
             audio_norm,
             language="vi",
             beam_size=5,
-            vad_filter=False,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500),
             temperature=0.0,
-            best_of=5
+            best_of=5,
+            initial_prompt=initial_prompt,
+            repetition_penalty=1.2,
+            no_repeat_ngram_size=3
         )
 
         full_text = []
@@ -208,43 +221,45 @@ def live_push_to_talk(model_size="base", device_index=None):
 
         # In kết quả trực quan
         print("\n" + "=" * 75)
-        print("               KẾT QUẢ BÓC BĂNG GIỌNG NÓI CỦA THẮNG")
+        print("               KET QUA PHIEN AM GIONG NOI")
         print("=" * 75)
-        print(f"📝 NỘI DUNG NHẬN DIỆN:")
+        print("[TRANSCRIPT]:")
         if transcribed_text:
             print(f'   "{transcribed_text}"')
         else:
-            print('   (Không nghe rõ từ ngữ nào - Vui lòng tăng âm lượng Microphone trong Windows hoặc nói to hơn một chút!)')
+            print('   (Khong nhan dien duoc am thanh ro rang. Vui long noi to hon hoac kiem tra mic!)')
         print("-" * 75)
-        print(f"⏱️ Thời lượng audio   : {duration_sec:.2f}s")
-        print(f"⚡ Thời gian suy luận  : {infer_time:.2f}s (RTF: {rtf:.3f} - Nhanh gấp {1.0/max(rtf, 0.001):.1f}x thời gian thực)")
-        print(f"📊 Tổng số từ         : {stats['word_count']} từ")
-        print(f"🚀 Tốc độ nói         : {stats['wpm']} WPM", end="")
+        print(f"[-] Thoi luong audio    : {duration_sec:.2f}s")
+        print(f"[-] Thoi gian xu ly     : {infer_time:.2f}s (RTF: {rtf:.3f} - Nhanh gap {1.0/max(rtf, 0.001):.1f}x real-time)")
+        print(f"[-] Tong so tu          : {stats['word_count']} tu")
+        print(f"[-] Toc do noi          : {stats['wpm']} WPM", end="")
         if 115 <= stats['wpm'] <= 145:
-            print(" (Chuẩn nhịp điệu thuyết trình Đồ án!)")
+            print(" (Chuan nhip dieu thuyet trinh Do an)")
         elif stats['wpm'] > 155:
-            print(" (Hơi nhanh - cần nói chậm rãi hơn!)")
+            print(" (Hoi nhanh - can noi cham rai hon)")
         elif stats['wpm'] > 0:
-            print(" (Hơi chậm - cần tăng nhịp độ lên một chút!)")
+            print(" (Hoi cham - can tang nhip do)")
         else:
-            print(" (Chưa nhận diện được từ)")
+            print(" (Chua nhan dien duoc tu)")
 
         if stats['fillers']:
-            filler_detail = [f"'{k}': {v} lần" for k, v in stats['fillers'].items()]
-            print(f"⚠️ Từ đệm phát hiện  : {stats['total_fillers']} lần ({', '.join(filler_detail)})")
+            filler_detail = [f"'{k}': {v} lan" for k, v in stats['fillers'].items()]
+            print(f"[!] Tu dem phat hien    : {stats['total_fillers']} lan ({', '.join(filler_detail)})")
         else:
-            print("✅ Từ đệm phát hiện  : 0 lần (Xuất sắc, không bị ậm ờ!)")
+            print("[OK] Tu dem phat hien   : 0 lan (Khong bi am o)")
         print("=" * 75)
 
         session_count += 1
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Live Speech-to-Text Test với Micro (v2.0)")
-    parser.add_argument("--model", "-m", type=str, default="base", choices=["base", "small"],
-                        help="Kích cỡ model Whisper ('base' siêu tốc, 'small' chính xác cao)")
+    parser = argparse.ArgumentParser(description="Live Speech-to-Text Test với Micro (v2.1 - Context Prompt)")
+    parser.add_argument("--model", "-m", type=str, default="base", choices=["tiny", "base", "small", "medium", "large-v3"],
+                        help="Kích cỡ model Whisper ('base' siêu tốc, 'small' chính xác cao hơn, 'medium' chất lượng tốt nhất)")
     parser.add_argument("--device", "-d", type=int, default=None,
                         help="Device ID của Microphone (chạy python -c 'import sounddevice; print(sounddevice.query_devices())')")
+    parser.add_argument("--prompt", "-p", type=str, default=DEFAULT_INITIAL_PROMPT,
+                        help="Prompt mớm ngữ cảnh để giữ từ đệm và nhận diện giọng vùng miền")
     args = parser.parse_args()
 
-    live_push_to_talk(model_size=args.model, device_index=args.device)
+    live_push_to_talk(model_size=args.model, device_index=args.device, initial_prompt=args.prompt)

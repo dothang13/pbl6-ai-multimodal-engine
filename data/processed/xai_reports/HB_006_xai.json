@@ -1,14 +1,14 @@
 {
   "video_id": "HB_006",
   "context": "hung_bien",
-  "base_score_phi0": 77.91,
+  "base_score_phi0": 77.97,
   "predicted_scores": {
-    "eye_contact_score": 63.34,
-    "head_posture_score": 76.9,
-    "facial_expression_score": 87.02,
-    "speech_rate_score": 93.78,
-    "filler_control_score": 87.53,
-    "overall_score": 82.67
+    "eye_contact_score": 63.14,
+    "head_posture_score": 76.74,
+    "facial_expression_score": 87.31,
+    "speech_rate_score": 93.67,
+    "filler_control_score": 87.25,
+    "overall_score": 82.74
   },
   "ground_truth_scores": {
     "eye_contact_score": 63.29,
@@ -23,51 +23,57 @@
       "feature": "vis_29_gaze_deviation_ratio",
       "feature_vi": "Tỷ lệ thời gian nhìn lệch khỏi vùng trung tâm",
       "value": 0.865,
-      "shap_impact": -0.69
+      "shap_impact": -0.33
     },
     {
       "feature": "vis_02_eye_contact_ratio",
       "feature_vi": "Tỷ lệ duy trì giao tiếp ánh mắt với camera",
       "value": 0.297,
-      "shap_impact": -0.3
+      "shap_impact": -0.15
+    },
+    {
+      "feature": "vis_30_eye_contact_streak_norm",
+      "feature_vi": "vis_30_eye_contact_streak_norm",
+      "value": 0.223,
+      "shap_impact": -0.07
     },
     {
       "feature": "vis_45_yaw_p90",
       "feature_vi": "vis_45_yaw_p90",
       "value": 29.942,
-      "shap_impact": -0.06
+      "shap_impact": -0.05
     }
   ],
   "top_strengths_shap": [
     {
-      "feature": "aud_01_wpm_speech_rate",
-      "feature_vi": "Tốc độ nói trung bình (Words Per Minute - WPM)",
-      "value": 108.246,
-      "shap_impact": 1.22
+      "feature": "vis_39_jaw_open_mean",
+      "feature_vi": "vis_39_jaw_open_mean",
+      "value": 0.051,
+      "shap_impact": 0.78
     },
     {
-      "feature": "vis_10_smile_active_ratio",
-      "feature_vi": "Tần suất biểu cảm nụ cười tích cực (Action Unit AU12)",
-      "value": 0.27,
-      "shap_impact": 0.69
+      "feature": "vis_17_posture_violation_ratio",
+      "feature_vi": "Tỷ lệ thời gian nghiêng/cúi đầu vượt ngưỡng 15°",
+      "value": 0.378,
+      "shap_impact": 0.62
     },
     {
       "feature": "vis_18_head_jitter_yaw",
       "feature_vi": "vis_18_head_jitter_yaw",
       "value": 1.842,
-      "shap_impact": 0.67
-    },
-    {
-      "feature": "ctx_03_pitching",
-      "feature_vi": "ctx_03_pitching",
-      "value": 0.0,
       "shap_impact": 0.55
     },
     {
       "feature": "vis_15_head_deviation_mean",
       "feature_vi": "Độ lệch góc tư thế đầu trung bình (Yaw/Pitch/Roll)",
       "value": 15.142,
-      "shap_impact": 0.32
+      "shap_impact": 0.25
+    },
+    {
+      "feature": "vis_50_pitch_p90",
+      "feature_vi": "vis_50_pitch_p90",
+      "value": 8.361,
+      "shap_impact": 0.22
     }
   ]
 }

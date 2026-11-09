@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "feature_version": "core30_ext123_v1",
+  "description": "Danh mục Đặc trưng Lõi (Core Features 30D) và Mở rộng (Extended 123D) theo Mục 11.3 Kế hoạch triển khai AI PBL6",
+  "core_features_30d": [
+    {"name": "face_coverage", "group": "quality", "unit": "ratio", "description": "Thời lượng phát hiện khuôn mặt hợp lệ / Thời lượng video"},
+    {"name": "front_ratio_total", "group": "vision", "unit": "ratio", "description": "Thời lượng hướng camera hợp lệ / Tổng thời lượng video (SRS)"},
+    {"name": "front_ratio_valid", "group": "vision", "unit": "ratio", "description": "Thời lượng hướng camera hợp lệ / Thời lượng có quan sát khuôn mặt"},
+    {"name": "head_stability_ratio", "group": "pose", "unit": "ratio", "description": "Tỷ lệ thời gian đầu ổn định (abs(yaw_rel)<=15° và abs(pitch_rel)<=15°)"},
+    {"name": "look_away_events_per_min", "group": "vision", "unit": "events_per_min", "description": "Số sự kiện quay mặt rời camera mỗi phút"},
+    {"name": "max_look_away_duration_sec", "group": "vision", "unit": "sec", "description": "Khoảng thời gian rời hướng camera liên tục dài nhất"},
+    {"name": "abs_yaw_median_deg", "group": "pose", "unit": "deg", "description": "Trung vị trị tuyệt đối góc quay ngang đầu (Yaw)"},
+    {"name": "abs_yaw_p90_deg", "group": "pose", "unit": "deg", "description": "Phân vị 90 trị tuyệt đối góc quay ngang đầu (Yaw)"},
+    {"name": "abs_pitch_median_deg", "group": "pose", "unit": "deg", "description": "Trung vị trị tuyệt đối góc gật/cúi đầu (Pitch)"},
+    {"name": "abs_pitch_p90_deg", "group": "pose", "unit": "deg", "description": "Phân vị 90 trị tuyệt đối góc gật/cúi đầu (Pitch)"},
+    {"name": "head_angular_Dispersion_deg", "group": "pose", "unit": "deg", "description": "Độ phân tán góc đầu tổng hợp quanh vị trí trung tính"},
+    {"name": "head_angular_velocity_mean_deg_s", "group": "pose", "unit": "deg_per_sec", "description": "Vận tốc góc quay đầu trung bình"},
+    {"name": "framing_sway_norm_std", "group": "pose", "unit": "ratio", "description": "Độ dịch chuyển tâm khuôn mặt chuẩn hóa theo khung hình"},
+    {"name": "whitespace_units_per_minute", "group": "speech_rate", "unit": "wpm", "description": "Tốc độ nói tính theo đơn vị khoảng trắng (âm tiết tiếng Việt) trên toàn bài"},
+    {"name": "words_per_minute_segmented", "group": "speech_rate", "unit": "wpm", "description": "Tốc độ nói tính theo từ ghép tiếng Việt đã phân đoạn"},
+    {"name": "articulation_rate_wpm", "group": "speech_rate", "unit": "wpm", "description": "Tốc độ phát âm trên thời lượng thực tế có tiếng nói (VAD)"},
+    {"name": "wpm_window_std", "group": "speech_rate", "unit": "wpm", "description": "Độ biến thiên tốc độ nói giữa các cửa sổ trượt 10-15 giây"},
+    {"name": "filler_events_per_minute", "group": "filler", "unit": "events_per_min", "description": "Tổng số sự kiện từ đệm (nonlexical + discourse) mỗi phút"},
+    {"name": "nonlexical_filler_per_min", "group": "filler", "unit": "events_per_min", "description": "Tần suất âm đệm phi từ vựng (ờ, ừm, à, ờm) mỗi phút"},
+    {"name": "discourse_filler_per_min", "group": "filler", "unit": "events_per_min", "description": "Tần suất cụm từ đệm chuyển ý lạm dụng (kiểu như, thì là) mỗi phút"},
+    {"name": "filler_time_ratio", "group": "filler", "unit": "ratio", "description": "Tỷ lệ thời gian phát âm từ đệm trên tổng thời lượng nói"},
+    {"name": "internal_pause_ratio", "group": "pause", "unit": "ratio", "description": "Tỷ lệ thời gian nghỉ nội bộ trong bài nói (không tính im lặng đầu/cuối)"},
+    {"name": "long_pause_count_per_min", "group": "pause", "unit": "events_per_min", "description": "Số khoảng nghỉ dài (>= 2.5s) mỗi phút"},
+    {"name": "pause_duration_p90_sec", "group": "pause", "unit": "sec", "description": "Phân vị 90 độ dài các khoảng nghỉ nội bộ"},
+    {"name": "f0_median_hz", "group": "prosody", "unit": "hz", "description": "Trung vị tần số cơ bản F0 trên các frame hữu thanh (Voiced)"},
+    {"name": "f0_iqr_hz", "group": "prosody", "unit": "hz", "description": "Khoảng tứ phân vị (IQR P75-P25) của F0 trên vùng hữu thanh"},
+    {"name": "f0_semitone_std", "group": "prosody", "unit": "semitone", "description": "Độ lệch chuẩn F0 tính theo bán cung (Semitone) quanh trung vị cá nhân"},
+    {"name": "rms_dynamic_range_db", "group": "prosody", "unit": "db", "description": "Dải động năng lượng âm thanh (P95 so với P10 theo dB)"},
+    {"name": "voiced_coverage_ratio", "group": "quality", "unit": "ratio", "description": "Tỷ lệ frame có tiếng nói hữu thanh hợp lệ"},
+    {"name": "clipping_ratio", "group": "quality", "unit": "ratio", "description": "Tỷ lệ mẫu âm thanh bị vỡ tiếng (Clipping |x| >= 0.99)"}
+  ]
+}
+

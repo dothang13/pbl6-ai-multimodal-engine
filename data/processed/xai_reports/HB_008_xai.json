@@ -1,14 +1,14 @@
 {
   "video_id": "HB_008",
   "context": "hung_bien",
-  "base_score_phi0": 77.91,
+  "base_score_phi0": 77.97,
   "predicted_scores": {
-    "eye_contact_score": 65.81,
-    "head_posture_score": 82.29,
-    "facial_expression_score": 76.07,
-    "speech_rate_score": 98.23,
-    "filler_control_score": 71.59,
-    "overall_score": 79.62
+    "eye_contact_score": 65.69,
+    "head_posture_score": 82.42,
+    "facial_expression_score": 75.99,
+    "speech_rate_score": 98.08,
+    "filler_control_score": 71.52,
+    "overall_score": 79.53
   },
   "ground_truth_scores": {
     "eye_contact_score": 65.76,
@@ -20,66 +20,66 @@
   },
   "top_penalties_shap": [
     {
-      "feature": "aud_05_filler_words_per_min",
-      "feature_vi": "Tần suất phát âm từ đệm (ờ, à, ừm) mỗi phút",
-      "value": 6.228,
-      "shap_impact": -2.34
-    },
-    {
       "feature": "vis_10_smile_active_ratio",
       "feature_vi": "Tần suất biểu cảm nụ cười tích cực (Action Unit AU12)",
       "value": 0.03,
-      "shap_impact": -0.85
+      "shap_impact": -0.24
+    },
+    {
+      "feature": "aud_05_filler_words_per_min",
+      "feature_vi": "Tần suất phát âm từ đệm (ờ, à, ừm) mỗi phút",
+      "value": 6.228,
+      "shap_impact": -0.17
     },
     {
       "feature": "vis_02_eye_contact_ratio",
       "feature_vi": "Tỷ lệ duy trì giao tiếp ánh mắt với camera",
       "value": 0.273,
-      "shap_impact": -0.32
+      "shap_impact": -0.16
     },
     {
-      "feature": "vis_09_smile_au12_mean",
-      "feature_vi": "vis_09_smile_au12_mean",
-      "value": 0.04,
+      "feature": "vis_22_blink_score_mean",
+      "feature_vi": "vis_22_blink_score_mean",
+      "value": 0.134,
       "shap_impact": -0.09
     },
     {
-      "feature": "vis_27_gaze_vert_mean",
-      "feature_vi": "vis_27_gaze_vert_mean",
-      "value": 0.21,
-      "shap_impact": -0.06
+      "feature": "vis_30_eye_contact_streak_norm",
+      "feature_vi": "vis_30_eye_contact_streak_norm",
+      "value": 0.207,
+      "shap_impact": -0.09
     }
   ],
   "top_strengths_shap": [
     {
-      "feature": "aud_01_wpm_speech_rate",
-      "feature_vi": "Tốc độ nói trung bình (Words Per Minute - WPM)",
-      "value": 129.037,
-      "shap_impact": 2.09
-    },
-    {
-      "feature": "ctx_03_pitching",
-      "feature_vi": "ctx_03_pitching",
-      "value": 0.0,
-      "shap_impact": 0.51
+      "feature": "vis_39_jaw_open_mean",
+      "feature_vi": "vis_39_jaw_open_mean",
+      "value": 0.13,
+      "shap_impact": 0.7
     },
     {
       "feature": "vis_17_posture_violation_ratio",
       "feature_vi": "Tỷ lệ thời gian nghiêng/cúi đầu vượt ngưỡng 15°",
       "value": 0.273,
-      "shap_impact": 0.47
+      "shap_impact": 0.64
     },
     {
       "feature": "vis_15_head_deviation_mean",
       "feature_vi": "Độ lệch góc tư thế đầu trung bình (Yaw/Pitch/Roll)",
       "value": 12.663,
-      "shap_impact": 0.37
+      "shap_impact": 0.28
     },
     {
-      "feature": "vis_29_gaze_deviation_ratio",
-      "feature_vi": "Tỷ lệ thời gian nhìn lệch khỏi vùng trung tâm",
-      "value": 0.636,
-      "shap_impact": 0.34
+      "feature": "vis_04_head_yaw_std",
+      "feature_vi": "vis_04_head_yaw_std",
+      "value": 13.201,
+      "shap_impact": 0.18
+    },
+    {
+      "feature": "vis_40_jaw_open_std",
+      "feature_vi": "vis_40_jaw_open_std",
+      "value": 0.133,
+      "shap_impact": 0.16
     }
   ]
 }

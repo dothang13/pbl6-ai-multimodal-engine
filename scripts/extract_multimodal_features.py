@@ -1,26 +1,31 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
- PIPELINE TRÍCH XUẤT ĐẶC TRƯNG ĐA PHƯƠNG THỨC 123 CHIỀU (123D) & TELEMETRY
+ PIPELINE ĐO LƯỜNG, TRÍCH XUẤT ĐẶC TRƯNG (30D CORE & 123D) VÀ SỰ KIỆN TIMELINE
  Đề tài: Nền tảng Đánh giá Kỹ năng Thuyết trình Tự động Đa Phương thức & Đa Bối cảnh
  Học phần: PBL6 - Khoa CNTT, Trường Đại học Bách Khoa - ĐHĐN
  AI & Data Lead: Nguyễn Đỗ Thắng
 
- Chức năng (Bước 1):
- 1. Quét toàn bộ video thực tế trong data/raw/DUT-PresCorpus/{do_an, hung_bien, pitching}
- 2. Tách luồng âm thanh WAV chuẩn 16kHz Mono vào data/processed/audio_16k/
- 3. Chạy Vision Sub-Engine (MediaPipe FaceMesh + solvePnP + 1-Euro Filter + AU12 Blendshapes)
-    để trích xuất 55 đặc trưng thị giác (55D Vision)
- 4. Chạy Audio Sub-Engine (Acoustic Prosody F0, Jitter, Shimmer, HNR, WPM, Pauses, Fillers)
-    để trích xuất 65 đặc trưng âm học (65D Audio) + lưu bản phân tích vào data/processed/transcripts/
- 5. Mã hóa One-Hot 3 chiều bối cảnh (3D Context) -> Hợp nhất thành Vector 123 chiều (123D)
- 6. Xuất chuỗi thời gian theo từng giây (data/processed/telemetry/{video_id}_telemetry.json)
- 7. Xuất bảng đặc trưng thật: data/features/dut_prescorpus_features_123d.csv
-    và bảng điểm chuẩn Rubric: data/annotations/rubric_scores.csv
+ Đã nâng cấp toàn diện theo Ke_hoach_trien_khai_AI_PBL6.docx (Mục 3.2, 8, 10, 11):
+ 1. Vision Sub-Engine:
+    - Lấy mẫu chuẩn 5 FPS theo timestamp thực (PTS), bỏ giới hạn cứng 45 frames.
+    - Điều kiện hướng camera chuẩn SRS: abs(yaw) < 15° và abs(pitch) < 15°.
+    - Tách bạch 3 chỉ số: face_coverage, front_ratio_valid, front_ratio_total.
+    - Gom sự kiện thị giác (looking_away, no_face) kèm start_ms, end_ms, evidence_id.
+ 2. Audio & Vietnamese Speech Sub-Engine:
+    - Kết hợp PhoWhisper/LoRA bóc băng nguyên văn tiếng Việt + phát hiện từ đệm theo
+      ranh giới từ (không match substring 'à' trong 'bày') + tách nonlexical / discourse filler.
+    - Tính tốc độ nói theo đơn vị khoảng trắng (whitespace_units_per_minute), từ ghép
+      (words_per_minute_segmented) và articulation_rate trên khoảng VAD có tiếng nói.
+    - Tính F0 thực tế theo từng giây trên vùng hữu thanh (Voiced), loại bỏ hoàn toàn nhiễu giả lập.
+ 3. Chính sách chấm điểm kép có phiên bản:
+    - Policy 'srs_v1_1' (score_mapping_v1): Đúng 5 tiêu chí SRS (có voice_energy) và tổng trọng số.
+    - Policy 'human_coaching_v1': Tương thích ngược với bộ 123D & giao diện Dashboard.
 =============================================================================
 """
 
 import os
+import re
 import sys
 import json
 import math
@@ -43,6 +48,11 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
 TAILIEU_ROOT = os.path.join(os.path.dirname(PROJECT_ROOT), "PBL6_TaiLieu")
+
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
+from prepare_dut_speech_dataset import detect_filler_events_in_text
 
 RAW_CORPUS_DIR = os.path.join(PROJECT_ROOT, "data", "raw", "DUT-PresCorpus")
 AUDIO_16K_DIR = os.path.join(PROJECT_ROOT, "data", "processed", "audio_16k")
@@ -116,8 +126,10 @@ def extract_audio_16k(video_path, output_wav_path):
 
 class VisionFeatureExtractor55D:
     """
-    Trích xuất đúng 55 chiều đặc trưng Thị giác (55D Vision) từ video:
+    Trích xuất đặc trưng Thị giác (55D Extended + Core SRS Metrics + Timeline Events):
     - MediaPipe FaceLandmarker (478 landmarks + 52 Blendshapes) + solvePnP + 1-Euro Filter
+    - Đọc frame theo timestamp thực (PTS), mặc định 5 FPS (theo Mục 10.2 Kế hoạch).
+    - Tính rõ: face_coverage, front_ratio_valid, front_ratio_total (với abs(yaw)<15° và abs(pitch)<15°).
     """
     def __init__(self):
         self.detector = None
@@ -131,9 +143,9 @@ class VisionFeatureExtractor55D:
                     base_options=base_options,
                     output_face_blendshapes=True,
                     output_facial_transformation_matrixes=True,
-                    num_faces=1,
-                    min_face_detection_confidence=0.15,
-                    min_face_presence_confidence=0.15,
+                    num_faces=2,  # Phát hiện trường hợp nhiều người trong khung hình (Mục 10.2)
+                    min_face_detection_confidence=0.25,
+                    min_face_presence_confidence=0.25,
                     running_mode=vision.RunningMode.IMAGE
                 )
                 self.detector = vision.FaceLandmarker.create_from_options(options)
@@ -150,8 +162,10 @@ class VisionFeatureExtractor55D:
             (150.0, -150.0, -125.0)
         ], dtype=np.float64)
         self.landmark_indices = [1, 152, 33, 263, 61, 291]
+        self.last_vision_events = []
+        self.last_quality_summary = {}
 
-    def process_video(self, video_path, sample_fps=1.0, max_samples=45):
+    def process_video(self, video_path, sample_fps=5.0, max_samples=900):
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise RuntimeError(f"Không thể mở video: {video_path}")
@@ -159,22 +173,33 @@ class VisionFeatureExtractor55D:
         orig_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         duration_sec = total_frames / orig_fps if orig_fps > 0 else 180.0
-        step_frames = max(1, int(round(orig_fps / sample_fps)))
-        if total_frames > 0 and (total_frames // step_frames) > max_samples:
+        step_frames = max(1, int(round(orig_fps / max(sample_fps, 0.5))))
+        if total_frames > 0 and max_samples and (total_frames // step_frames) > max_samples:
             step_frames = max(1, total_frames // max_samples)
 
         filters = {}
         frame_records = []
-        target_indices = range(0, max(total_frames, 1), step_frames)
+        frame_idx = 0
 
-        for frame_idx in target_indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            ret, frame = cap.read()
+        # Đọc tuần tự theo luồng giải mã để lấy chính xác PTS timestamp và tiết kiệm RAM
+        while True:
+            ret = cap.grab()
             if not ret:
                 break
-            t_sec = frame_idx / orig_fps
-            rec = self._analyze_single_frame(frame, t_sec, filters)
-            frame_records.append(rec)
+            if frame_idx % step_frames == 0:
+                ret_dec, frame = cap.retrieve()
+                if not ret_dec or frame is None:
+                    break
+                pts_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
+                t_sec = (pts_msec / 1000.0) if (pts_msec and pts_msec > 0) else (frame_idx / orig_fps)
+                # Thu nhỏ ảnh về chiều rộng ~640px để tối ưu CPU như Mục 10.2 Kế hoạch
+                h0, w0 = frame.shape[:2]
+                if w0 > 720:
+                    scale = 640.0 / float(w0)
+                    frame = cv2.resize(frame, (640, int(round(h0 * scale))), interpolation=cv2.INTER_AREA)
+                rec = self._analyze_single_frame(frame, t_sec, filters)
+                frame_records.append(rec)
+            frame_idx += 1
 
         cap.release()
         return self._aggregate_55d(frame_records, duration_sec)
@@ -186,14 +211,13 @@ class VisionFeatureExtractor55D:
             mp_img = self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=rgb)
             res = self.detector.detect(mp_img)
 
-            # Nếu góc quay toàn cảnh sân khấu (như Shark Tank) làm mặt nhỏ, tự động zoom vùng trung tâm nửa trên
             if (not res.face_landmarks or len(res.face_landmarks) == 0) and h > 300 and w > 300:
                 crop_rgb = rgb[int(h * 0.08):int(h * 0.75), int(w * 0.22):int(w * 0.78)]
                 mp_crop = self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=np.ascontiguousarray(crop_rgb))
                 res = self.detector.detect(mp_crop)
 
             if res.face_landmarks and len(res.face_landmarks) > 0:
-                # 1. Tính góc quay đầu (Yaw, Pitch, Roll)
+                multi_face = 1.0 if len(res.face_landmarks) > 1 else 0.0
                 if res.facial_transformation_matrixes and len(res.facial_transformation_matrixes) > 0:
                     mat = np.array(res.facial_transformation_matrixes[0])
                     angles, _, _, _, _, _ = cv2.RQDecomp3x3(mat[:3, :3])
@@ -207,7 +231,6 @@ class VisionFeatureExtractor55D:
                     angles, _, _, _, _, _ = cv2.RQDecomp3x3(rmat)
                     pitch, yaw, roll = float(angles[0]), float(angles[1]), float(angles[2])
 
-                # 2. Lọc 1-Euro Filter
                 if 'yaw' not in filters:
                     filters['yaw'] = OneEuroFilter(t_sec, yaw)
                     filters['pitch'] = OneEuroFilter(t_sec, pitch)
@@ -218,7 +241,6 @@ class VisionFeatureExtractor55D:
                     p_f = filters['pitch'].filter(t_sec, pitch)
                     r_f = filters['roll'].filter(t_sec, roll)
 
-                # 3. Trích xuất Blendshapes (AU12 Smile, Blink, Gaze, Brow, Jaw)
                 bs_map = {}
                 if res.face_blendshapes and len(res.face_blendshapes) > 0:
                     for b in res.face_blendshapes[0]:
@@ -240,12 +262,16 @@ class VisionFeatureExtractor55D:
                 lms = res.face_landmarks[0]
                 nose_x, nose_y = float(lms[1].x), float(lms[1].y)
 
-                eye_contact = (abs(y_f) <= 22.0) and (abs(p_f) <= 18.0) and (gaze_horiz < 0.28)
+                # Điều kiện hướng camera theo SRS (abs(yaw)<15° và abs(pitch)<15°, Mục 10.3 Kế hoạch)
+                srs_camera_facing = (abs(y_f) < 15.0) and (abs(p_f) < 15.0)
+                eye_contact = (abs(y_f) <= 18.0) and (abs(p_f) <= 16.0) and (gaze_horiz < 0.28)
                 return {
-                    'timestamp_sec': round(t_sec, 2),
+                    'timestamp_sec': round(t_sec, 3),
                     'detected': 1.0,
+                    'multi_face': multi_face,
                     'yaw': y_f, 'pitch': p_f, 'roll': r_f,
                     'raw_yaw': yaw, 'raw_pitch': pitch, 'raw_roll': roll,
+                    'srs_camera_facing': 1.0 if srs_camera_facing else 0.0,
                     'eye_contact': 1.0 if eye_contact else 0.0,
                     'smile_au12': smile_au12,
                     'blink_score': blink_score,
@@ -257,12 +283,13 @@ class VisionFeatureExtractor55D:
                     'nose_y': nose_y
                 }
 
-        # Fallback nếu khung hình bị che khuất hoặc chuyển cảnh slide
         return {
-            'timestamp_sec': round(t_sec, 2),
+            'timestamp_sec': round(t_sec, 3),
             'detected': 0.0,
+            'multi_face': 0.0,
             'yaw': 0.0, 'pitch': 0.0, 'roll': 0.0,
             'raw_yaw': 0.0, 'raw_pitch': 0.0, 'raw_roll': 0.0,
+            'srs_camera_facing': 0.0,
             'eye_contact': 0.0,
             'smile_au12': 0.0,
             'blink_score': 0.0,
@@ -274,16 +301,92 @@ class VisionFeatureExtractor55D:
             'nose_y': 0.5
         }
 
+    def _build_vision_events(self, df_r):
+        """Gom các frame liên tiếp thành sự kiện thị giác (looking_away, no_face) có start_ms, end_ms, evidence_id."""
+        events = []
+        if len(df_r) < 2:
+            return events
+
+        times = df_r['timestamp_sec'].to_numpy(dtype=np.float64)
+        det = df_r['detected'].to_numpy(dtype=np.float64)
+        yaws = df_r['yaw'].to_numpy(dtype=np.float64)
+        pitches = df_r['pitch'].to_numpy(dtype=np.float64)
+
+        # Khử góc lệch trung vị nếu camera đặt hơi chéo
+        med_yaw = float(np.median(yaws[det > 0.5])) if np.any(det > 0.5) else 0.0
+        med_pitch = float(np.median(pitches[det > 0.5])) if np.any(det > 0.5) else 0.0
+
+        # 1. Sự kiện mất khuôn mặt (no_face >= 1.5s)
+        in_no_face = False
+        t_start = 0.0
+        ev_idx = 1
+        for i, t in enumerate(times):
+            if det[i] < 0.5:
+                if not in_no_face:
+                    in_no_face = True
+                    t_start = float(t)
+            else:
+                if in_no_face:
+                    dur = float(t) - t_start
+                    if dur >= 1.5:
+                        events.append({
+                            "evidence_id": f"ev_vis_noface_{ev_idx:02d}",
+                            "type": "no_face",
+                            "channel": "vision",
+                            "start_ms": int(round(t_start * 1000)),
+                            "end_ms": int(round(float(t) * 1000)),
+                            "duration_sec": round(dur, 2),
+                            "measured_value": 0.0,
+                            "unit": "face_presence",
+                            "description": f"Không phát hiện khuôn mặt trong khung hình ({dur:.1f}s)"
+                        })
+                        ev_idx += 1
+                    in_no_face = False
+
+        # 2. Sự kiện quay đầu rời hướng camera kéo dài (looking_away >= 2.0s)
+        in_away = False
+        t_start = 0.0
+        away_angles = []
+        for i, t in enumerate(times):
+            is_away = (det[i] > 0.5) and (abs(yaws[i] - med_yaw) >= 15.0 or abs(pitches[i] - med_pitch) >= 15.0)
+            if is_away:
+                if not in_away:
+                    in_away = True
+                    t_start = float(t)
+                    away_angles = []
+                away_angles.append(max(abs(yaws[i] - med_yaw), abs(pitches[i] - med_pitch)))
+            else:
+                if in_away:
+                    dur = float(t) - t_start
+                    if dur >= 2.0:
+                        mean_ang = round(float(np.mean(away_angles)), 1)
+                        events.append({
+                            "evidence_id": f"ev_vis_away_{ev_idx:02d}",
+                            "type": "looking_away",
+                            "channel": "vision",
+                            "start_ms": int(round(t_start * 1000)),
+                            "end_ms": int(round(float(t) * 1000)),
+                            "duration_sec": round(dur, 2),
+                            "measured_value": mean_ang,
+                            "unit": "deg",
+                            "description": f"Lệch hướng đầu khỏi camera liên tục {dur:.1f}s (góc lệch TB {mean_ang}°)"
+                        })
+                        ev_idx += 1
+                    in_away = False
+        return events
+
     def _aggregate_55d(self, records, duration_sec):
         if not records:
-            records = [{'timestamp_sec': 0.0, 'detected': 0.0, 'yaw': 0.0, 'pitch': 0.0, 'roll': 0.0,
-                        'raw_yaw': 0.0, 'raw_pitch': 0.0, 'raw_roll': 0.0, 'eye_contact': 0.5,
-                        'smile_au12': 0.1, 'blink_score': 0.1, 'gaze_horiz': 0.2, 'gaze_vert': 0.2,
-                        'brow_lift': 0.1, 'jaw_open': 0.1, 'nose_x': 0.5, 'nose_y': 0.5}]
+            records = [{'timestamp_sec': 0.0, 'detected': 0.0, 'multi_face': 0.0, 'yaw': 0.0, 'pitch': 0.0, 'roll': 0.0,
+                        'raw_yaw': 0.0, 'raw_pitch': 0.0, 'raw_roll': 0.0, 'srs_camera_facing': 0.0, 'eye_contact': 0.0,
+                        'smile_au12': 0.0, 'blink_score': 0.0, 'gaze_horiz': 0.5, 'gaze_vert': 0.5,
+                        'brow_lift': 0.0, 'jaw_open': 0.0, 'nose_x': 0.5, 'nose_y': 0.5}]
 
         df_r = pd.DataFrame(records)
+        face_coverage = float(df_r['detected'].mean())
         valid = df_r[df_r['detected'] > 0.5]
-        if len(valid) < 3:
+        has_valid_face = len(valid) >= 3
+        if not has_valid_face:
             valid = df_r
 
         yaw = valid['yaw'].to_numpy(dtype=np.float64)
@@ -298,28 +401,49 @@ class VisionFeatureExtractor55D:
         nx = valid['nose_x'].to_numpy(dtype=np.float64)
         ny = valid['nose_y'].to_numpy(dtype=np.float64)
 
-        # Chuẩn hóa góc lệch theo trục camera sân khấu (khử góc đặt máy quay lệch trong Shark Tank / Trường Teen)
         yaw_rel = yaw - np.median(yaw)
         pitch_rel = pitch - np.median(pitch)
         roll_rel = roll - np.median(roll)
         head_dev = np.sqrt(1.0 * (yaw_rel ** 2) + 1.3 * (pitch_rel ** 2) + 1.0 * (roll_rel ** 2))
 
+        # Tách 3 chỉ số chuẩn Mục 10.3 Kế hoạch: face_coverage, front_ratio_valid, front_ratio_total
+        facing_valid_mask = (np.abs(yaw_rel) < 15.0) & (np.abs(pitch_rel) < 15.0)
+        front_ratio_valid = float(np.mean(facing_valid_mask)) if has_valid_face else 0.0
+        front_ratio_total = float(front_ratio_valid * face_coverage)
+        head_stability_ratio = float(np.mean(head_dev <= 15.0)) if has_valid_face else 0.0
+
         t_arr = valid['timestamp_sec'].to_numpy(dtype=np.float64)
-        dt = np.maximum(np.diff(t_arr), 1.0) if len(t_arr) > 1 else np.array([1.0])
+        dt = np.maximum(np.diff(t_arr), 0.1) if len(t_arr) > 1 else np.array([1.0])
         dyaw = (np.abs(np.diff(yaw)) / dt) if len(yaw) > 1 else np.array([0.2])
         dpitch = (np.abs(np.diff(pitch)) / dt) if len(pitch) > 1 else np.array([0.2])
         droll = (np.abs(np.diff(roll)) / dt) if len(roll) > 1 else np.array([0.1])
 
-        minutes = max(duration_sec / 60.0, 0.5)
+        minutes = max(duration_sec / 60.0, 0.25)
         blink_events = int(np.sum(blink > 0.35))
         blink_rate = float(np.clip(blink_events / minutes, 6.0, 55.0))
         nod_events = int(np.sum(dpitch > 3.5))
         nod_rate = float(np.clip(nod_events / minutes, 0.5, 25.0))
 
+        self.last_vision_events = self._build_vision_events(df_r)
+        quality_flags = []
+        if face_coverage == 0.0:
+            quality_flags.append("AI_NO_FACE_DETECTED")
+        elif face_coverage < 0.80:
+            quality_flags.append("LOW_FACE_COVERAGE")
+        if float(df_r['multi_face'].mean()) > 0.15:
+            quality_flags.append("MULTIPLE_FACES_DETECTED")
+
+        self.last_quality_summary = {
+            "face_coverage": round(face_coverage, 4),
+            "front_ratio_valid": round(front_ratio_valid, 4),
+            "front_ratio_total": round(front_ratio_total, 4),
+            "head_stability_ratio": round(head_stability_ratio, 4),
+            "vision_flags": quality_flags
+        }
+
         vis = {
-            # 1-10: Core Rubric Vision Metrics
-            'vis_01_face_presence_ratio': float(df_r['detected'].mean()),
-            'vis_02_eye_contact_ratio': float(valid['eye_contact'].mean()),
+            'vis_01_face_presence_ratio': face_coverage,
+            'vis_02_eye_contact_ratio': front_ratio_total if has_valid_face else 0.0,
             'vis_03_head_yaw_mean': float(np.mean(yaw)),
             'vis_04_head_yaw_std': float(np.std(yaw)),
             'vis_05_head_pitch_mean': float(np.mean(pitch)),
@@ -329,7 +453,6 @@ class VisionFeatureExtractor55D:
             'vis_09_smile_au12_mean': float(np.mean(smile)),
             'vis_10_smile_active_ratio': float(np.mean(smile > 0.22)),
 
-            # 11-20: Head Pose Extremes & Stability
             'vis_11_head_yaw_abs_max': float(np.max(np.abs(yaw))),
             'vis_12_head_pitch_min': float(np.min(pitch)),
             'vis_13_head_pitch_max': float(np.max(pitch)),
@@ -341,7 +464,6 @@ class VisionFeatureExtractor55D:
             'vis_19_head_jitter_pitch': float(np.mean(dpitch)),
             'vis_20_head_jitter_roll': float(np.mean(droll)),
 
-            # 21-30: Gaze, Blink & Nod Dynamics
             'vis_21_blink_rate_per_min': blink_rate,
             'vis_22_blink_score_mean': float(np.mean(blink)),
             'vis_23_blink_score_std': float(np.std(blink)),
@@ -351,9 +473,8 @@ class VisionFeatureExtractor55D:
             'vis_27_gaze_vert_mean': float(np.mean(gaze_v)),
             'vis_28_gaze_vert_std': float(np.std(gaze_v)),
             'vis_29_gaze_deviation_ratio': float(np.mean((gaze_h > 0.35) | (gaze_v > 0.35))),
-            'vis_30_eye_contact_streak_norm': float(np.clip(valid['eye_contact'].mean() * (1.0 - np.std(gaze_h)), 0.0, 1.0)),
+            'vis_30_eye_contact_streak_norm': float(np.clip(front_ratio_valid * (1.0 - np.std(gaze_h)), 0.0, 1.0)),
 
-            # 31-40: Facial Expression & Action Units
             'vis_31_smile_au12_std': float(np.std(smile)),
             'vis_32_smile_au12_max': float(np.max(smile)),
             'vis_33_smile_au12_p25': float(np.percentile(smile, 25)),
@@ -365,7 +486,6 @@ class VisionFeatureExtractor55D:
             'vis_39_jaw_open_mean': float(np.mean(jaw)),
             'vis_40_jaw_open_std': float(np.std(jaw)),
 
-            # 41-55: Percentiles & Spatial Framing Stability
             'vis_41_yaw_p10': float(np.percentile(yaw, 10)),
             'vis_42_yaw_p25': float(np.percentile(yaw, 25)),
             'vis_43_yaw_p50': float(np.percentile(yaw, 50)),
@@ -388,23 +508,124 @@ class VisionFeatureExtractor55D:
 
 class AudioFeatureExtractor65D:
     """
-    Trích xuất đúng 65 chiều đặc trưng Âm học & Ngôn ngữ (65D Audio) từ file WAV 16kHz:
-    - F0 Pitch Contour (Autocorrelation / Cepstral), Jitter, Shimmer, HNR
-    - Energy Envelope, Voiced/Silence Segments, Pause Ratio, Dead-air Ratio
-    - Speaking Rate (WPM), Articulation Rate, Filler Rate & Spectral Statistics
+    Trích xuất 65 chiều đặc trưng Âm học & Ngôn ngữ (65D Audio) + Sự kiện âm thanh thực tế:
+    - Tích hợp PhoWhisper / Whisper LoRA để lấy transcript nguyên văn tiếng Việt (khi bật use_asr)
+      và đếm sự kiện từ đệm theo ranh giới từ (detect_filler_events_in_text).
+    - Tính tốc độ nói theo đơn vị khoảng trắng (whitespace_units_per_minute), từ phân đoạn
+      và articulation_rate trên khoảng VAD.
+    - Loại bỏ hoàn toàn nhiễu ngẫu nhiên ở sec_f0; tính F0 thực tế theo từng giây trên frame hữu thanh.
     """
+    def __init__(self, enable_asr=False):
+        self.enable_asr = enable_asr
+        self.asr_model = None
+        self.asr_processor = None
+        self.asr_device = "cpu"
+        self.last_transcript_info = {}
+        self.last_audio_events = []
+        self.last_quality_summary = {}
+
+        if self.enable_asr:
+            self._init_asr_engine()
+
+    def _init_asr_engine(self):
+        try:
+            import torch
+            from transformers import WhisperForConditionalGeneration, WhisperProcessor
+            from peft import PeftModel
+            self.asr_device = "cuda" if torch.cuda.is_available() else "cpu"
+            lora_dir = os.path.join(WEIGHTS_DIR, "whisper_lora_vietnamese")
+            base_name = "vinai/PhoWhisper-small"
+            cfg_path = os.path.join(lora_dir, "adapter_config.json")
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    base_name = json.load(f).get("base_model_name_or_path", base_name)
+            base_model = WhisperForConditionalGeneration.from_pretrained(base_name)
+            if os.path.exists(os.path.join(lora_dir, "adapter_model.safetensors")):
+                self.asr_model = PeftModel.from_pretrained(base_model, lora_dir)
+                self.asr_processor = WhisperProcessor.from_pretrained(lora_dir)
+            else:
+                self.asr_model = base_model
+                self.asr_processor = WhisperProcessor.from_pretrained(base_name)
+            self.asr_model.to(self.asr_device)
+            self.asr_model.eval()
+        except Exception as e:
+            print(f"[!] ASR Model chưa nạp trực tiếp ({e}), sử dụng bộ ước lượng âm tiết & từ đệm âm học.")
+            self.asr_model = None
+
+    def _transcribe_chunks_if_enabled(self, audio, sr):
+        """Bóc băng theo cửa sổ 20 giây để lấy transcript nguyên văn và mốc thời gian từ đệm."""
+        if self.asr_model is None or self.asr_processor is None:
+            return None
+        try:
+            import torch
+            chunk_sec = 20.0
+            chunk_samples = int(chunk_sec * sr)
+            segments = []
+            full_texts = []
+            filler_events = []
+            ev_idx = 1
+
+            for start_sample in range(0, len(audio), chunk_samples):
+                chunk = audio[start_sample:start_sample + chunk_samples]
+                if len(chunk) < int(0.5 * sr):
+                    continue
+                t0_sec = start_sample / float(sr)
+                t1_sec = min(len(audio), start_sample + chunk_samples) / float(sr)
+                inputs = self.asr_processor(chunk, sampling_rate=sr, return_tensors="pt").input_features.to(self.asr_device)
+                with torch.no_grad():
+                    pred_ids = self.asr_model.generate(inputs, language="vi", task="transcribe", max_new_tokens=128)
+                text_seg = self.asr_processor.batch_decode(pred_ids, skip_special_tokens=True)[0].strip()
+                if text_seg:
+                    full_texts.append(text_seg)
+                    ev_list, _, _ = detect_filler_events_in_text(text_seg)
+                    for ev in ev_list:
+                        rel_ratio = ev["char_start"] / max(len(text_seg), 1)
+                        est_start = t0_sec + rel_ratio * (t1_sec - t0_sec)
+                        filler_events.append({
+                            "evidence_id": f"ev_aud_filler_{ev_idx:02d}",
+                            "type": ev["type"],
+                            "surface": ev["surface"],
+                            "channel": "audio",
+                            "start_ms": int(round(est_start * 1000)),
+                            "end_ms": int(round((est_start + 0.45) * 1000)),
+                            "duration_sec": 0.45,
+                            "measured_value": 1.0,
+                            "unit": "event",
+                            "description": f"Phát hiện từ đệm '{ev['surface']}' ({ev['type']})"
+                        })
+                        ev_idx += 1
+                    segments.append({"start_sec": round(t0_sec, 2), "end_sec": round(t1_sec, 2), "text": text_seg})
+
+            full_transcript = " ".join(full_texts).strip()
+            _, nonlex_cnt, disc_cnt = detect_filler_events_in_text(full_transcript)
+            whitespace_units = len(re.findall(r"\S+", re.sub(r"[,\.\!\?\;\:\"\(\)\[\]\-]+", " ", full_transcript)))
+            return {
+                "transcript_verbatim": full_transcript,
+                "segments": segments,
+                "whitespace_unit_count": whitespace_units,
+                "filler_events": filler_events,
+                "nonlexical_filler_count": nonlex_cnt,
+                "discourse_filler_count": disc_cnt
+            }
+        except Exception as e:
+            print(f"[!] Lỗi khi chạy ASR chunking: {e}")
+            return None
+
     def process_audio(self, wav_path):
         audio, sr = sf.read(wav_path, dtype='float32')
         if len(audio.shape) > 1:
             audio = np.mean(audio, axis=1)
 
         duration_sec = max(len(audio) / float(sr), 1.0)
+        clipping_ratio = float(np.mean(np.abs(audio) >= 0.99))
+
         frame_len = int(0.04 * sr)  # 40ms window
         hop_len = int(0.02 * sr)    # 20ms step
 
         rms_list = []
         zcr_list = []
         f0_list = []
+        f0_by_frame = []
         peak_amps = []
         spec_centroid_list = []
         spec_bandwidth_list = []
@@ -422,7 +643,6 @@ class AudioFeatureExtractor65D:
             zcr = float(np.mean(np.abs(np.diff(np.sign(seg)))) * 0.5)
             zcr_list.append(zcr)
 
-            # Phổ tần số FFT
             mag = np.abs(np.fft.rfft(seg * window)) + 1e-9
             mag_sum = float(np.sum(mag))
             centroid = float(np.sum(freqs * mag) / mag_sum)
@@ -435,7 +655,6 @@ class AudioFeatureExtractor65D:
             spec_bandwidth_list.append(bandwidth)
             spec_rolloff_list.append(rolloff)
 
-            # Chia 8 dải tần (Sub-band Log Energies)
             split_bands = np.array_split(mag, 8)
             for b_i, b_arr in enumerate(split_bands):
                 band_energies[b_i].append(float(np.log10(np.mean(b_arr ** 2) + 1e-9)))
@@ -445,32 +664,38 @@ class AudioFeatureExtractor65D:
         thr_voice = max(float(np.percentile(rms_arr, 25)) * 1.35, 0.008)
         voiced_mask = rms_arr > thr_voice
 
-        # Tính F0 trên các khung có tiếng nói (Voiced frames) bằng Autocorrelation
-        min_lag = int(sr / 320.0)  # Max F0 ~ 320Hz
-        max_lag = int(sr / 75.0)   # Min F0 ~ 75Hz
+        min_lag = int(sr / 320.0)
+        max_lag = int(sr / 75.0)
         hnr_list = []
 
         for idx, start in enumerate(range(0, len(audio) - frame_len, hop_len)):
             if not voiced_mask[idx]:
+                f0_by_frame.append(0.0)
                 continue
             seg = audio[start:start + frame_len] - np.mean(audio[start:start + frame_len])
             corr = np.correlate(seg, seg, mode='full')
             corr = corr[len(corr) // 2:]
             if corr[0] <= 1e-9:
+                f0_by_frame.append(0.0)
                 continue
             corr_norm = corr / corr[0]
             search_region = corr_norm[min_lag:min(max_lag, len(corr_norm))]
             if len(search_region) == 0:
+                f0_by_frame.append(0.0)
                 continue
             best_lag = min_lag + int(np.argmax(search_region))
             r_max = float(corr_norm[best_lag])
             if 0.25 < r_max < 0.999:
                 f0_hz = float(sr / best_lag)
                 f0_list.append(f0_hz)
+                f0_by_frame.append(f0_hz)
                 peak_amps.append(float(np.max(np.abs(seg))))
                 hnr_db = 10.0 * math.log10(r_max / max(1.0 - r_max, 1e-4))
                 hnr_list.append(float(np.clip(hnr_db, 0.0, 35.0)))
+            else:
+                f0_by_frame.append(0.0)
 
+        f0_frame_arr = np.array(f0_by_frame, dtype=np.float64)
         if len(f0_list) < 5:
             f0_arr = np.array([150.0, 160.0, 155.0, 165.0, 148.0], dtype=np.float64)
             peak_arr = np.array([0.1, 0.11, 0.1, 0.12, 0.1], dtype=np.float64)
@@ -480,61 +705,115 @@ class AudioFeatureExtractor65D:
             peak_arr = np.array(peak_amps, dtype=np.float64)
             hnr_arr = np.array(hnr_list, dtype=np.float64)
 
-        # Jitter & Shimmer chuẩn Praat
         periods = 1.0 / np.clip(f0_arr, 75.0, 320.0)
         jitter_local = float(np.mean(np.abs(np.diff(periods))) / (np.mean(periods) + 1e-9)) * 100.0
         shimmer_local = float(np.mean(np.abs(np.diff(peak_arr))) / (np.mean(peak_arr) + 1e-9)) * 100.0
 
-        # Phân tích khoảng lặng (Pauses) & Tốc độ âm tiết (Syllable Nuclei -> WPM)
+        # Tách khoảng nghỉ nội bộ và tạo sự kiện silent_pause (Mục 8.6 Kế hoạch)
         silence_mask = ~voiced_mask
         pause_ratio = float(np.mean(silence_mask))
 
-        # Đếm độ dài các đoạn im lặng liên tiếp
         silence_runs = []
+        audio_events = []
         cur_run = 0
-        for is_sil in silence_mask:
+        run_start_idx = 0
+        ev_pause_idx = 1
+        for f_idx, is_sil in enumerate(silence_mask):
             if is_sil:
+                if cur_run == 0:
+                    run_start_idx = f_idx
                 cur_run += 1
             elif cur_run > 0:
-                silence_runs.append(cur_run * 0.02)  # mỗi hop là 20ms
+                dur_sil = cur_run * 0.02
+                t_start = run_start_idx * 0.02
+                t_end = f_idx * 0.02
+                # Bỏ qua im lặng ở sát biên đầu/cuối file khi tính pause nội bộ
+                if t_start > 0.5 and t_end < (duration_sec - 0.5):
+                    silence_runs.append(dur_sil)
+                    if dur_sil >= 2.5:
+                        audio_events.append({
+                            "evidence_id": f"ev_aud_pause_{ev_pause_idx:02d}",
+                            "type": "silent_pause",
+                            "channel": "audio",
+                            "start_ms": int(round(t_start * 1000)),
+                            "end_ms": int(round(t_end * 1000)),
+                            "duration_sec": round(dur_sil, 2),
+                            "measured_value": round(dur_sil, 2),
+                            "unit": "sec",
+                            "description": f"Khoảng lặng kéo dài {dur_sil:.1f}s trong bài nói"
+                        })
+                        ev_pause_idx += 1
                 cur_run = 0
-        if cur_run > 0:
-            silence_runs.append(cur_run * 0.02)
 
         long_pauses = [p for p in silence_runs if p >= 0.5]
         dead_air_pauses = [p for p in silence_runs if p >= 2.5]
         dead_air_ratio = float(sum(dead_air_pauses) / duration_sec)
 
-        # Ước lượng tốc độ phát âm (Syllable Peak Envelope Detection) & Hesitation Fillers
+        # Phát hiện đỉnh âm tiết (Syllable Peak Envelope) và kết hợp ASR nếu có
         rms_smooth = np.convolve(rms_arr, np.ones(5) / 5.0, mode='same')
-        peaks = 0
-        hesitation_nuclei = 0
+        peak_frames = []
+        hesitation_frames = []
         for i in range(2, len(rms_smooth) - 2):
             if rms_smooth[i] > thr_voice and rms_smooth[i] > rms_smooth[i - 1] and rms_smooth[i] > rms_smooth[i + 1]:
-                peaks += 1
-                # Đoạn ngập ngừng (năng lượng thấp + cao độ phẳng + đứng trước/sau khoảng lặng)
+                peak_frames.append(i)
                 if rms_smooth[i] < thr_voice * 2.1 and zcr_arr[i] < 0.08:
-                    hesitation_nuclei += 1
+                    hesitation_frames.append(i)
 
-        minutes = max(duration_sec / 60.0, 0.5)
-        # Trong tiếng Việt, mỗi đỉnh năng lượng tương ứng ~0.42 từ đơn thực tế
-        estimated_wpm = float(np.clip((peaks * 0.42) / minutes, 75.0, 195.0))
-        voiced_minutes = max(minutes * (1.0 - pause_ratio), 0.25)
-        articulation_wpm = float(np.clip((peaks * 0.42) / voiced_minutes, 90.0, 230.0))
-        filler_per_min = float(np.clip((hesitation_nuclei * 0.075) / minutes, 0.5, 7.8))
+        minutes = max(duration_sec / 60.0, 0.25)
+        voiced_minutes = max(minutes * (1.0 - pause_ratio), 0.15)
+
+        asr_res = self._transcribe_chunks_if_enabled(audio, sr)
+        if asr_res and asr_res["whitespace_unit_count"] > 5:
+            whitespace_wpm = float(np.clip(asr_res["whitespace_unit_count"] / minutes, 60.0, 210.0))
+            articulation_wpm = float(np.clip(asr_res["whitespace_unit_count"] / voiced_minutes, 75.0, 240.0))
+            total_filler_events = asr_res["nonlexical_filler_count"] + asr_res["discourse_filler_count"]
+            filler_per_min = float(np.clip(total_filler_events / minutes, 0.0, 15.0))
+            audio_events.extend(asr_res["filler_events"])
+            self.last_transcript_info = {
+                "source": "phowhisper_lora_asr",
+                "rate_unit": "whitespace_units_per_minute",
+                "tokenizer_version": "phowhisper_vi_v1",
+                "count_policy": "event_word_boundary",
+                **asr_res
+            }
+        else:
+            peaks = len(peak_frames)
+            hesitation_nuclei = len(hesitation_frames)
+            whitespace_wpm = float(np.clip((peaks * 0.42) / minutes, 75.0, 195.0))
+            articulation_wpm = float(np.clip((peaks * 0.42) / voiced_minutes, 90.0, 230.0))
+            filler_per_min = float(np.clip((hesitation_nuclei * 0.075) / minutes, 0.5, 7.8))
+            self.last_transcript_info = {
+                "source": "acoustic_syllable_envelope",
+                "rate_unit": "estimated_whitespace_units_per_minute",
+                "tokenizer_version": "acoustic_peak_v1",
+                "count_policy": "hesitation_nuclei_proxy",
+                "whitespace_unit_count": int(round(whitespace_wpm * minutes)),
+                "nonlexical_filler_count": int(round(filler_per_min * minutes))
+            }
+
+        self.last_audio_events = sorted(audio_events, key=lambda x: x["start_ms"])
+        aud_flags = []
+        if float(np.mean(voiced_mask)) < 0.12:
+            aud_flags.append("LOW_VOICED_SPEECH_RATIO")
+        if clipping_ratio > 0.01:
+            aud_flags.append("AUDIO_CLIPPING_DETECTED")
+        self.last_quality_summary = {
+            "voiced_fraction": round(float(np.mean(voiced_mask)), 4),
+            "clipping_ratio": round(clipping_ratio, 5),
+            "audio_flags": aud_flags
+        }
 
         sc_arr = np.array(spec_centroid_list, dtype=np.float64)
         sb_arr = np.array(spec_bandwidth_list, dtype=np.float64)
         sr_arr = np.array(spec_rolloff_list, dtype=np.float64)
 
         aud = {
-            # 1-12: Core Rubric Audio & Speech Metrics
-            'aud_01_wpm_speech_rate': estimated_wpm,
+            'aud_01_wpm_speech_rate': whitespace_wpm,
             'aud_02_articulation_rate_wpm': articulation_wpm,
             'aud_03_pause_duration_ratio': pause_ratio,
             'aud_04_dead_air_ratio': dead_air_ratio,
             'aud_05_filler_words_per_min': filler_per_min,
-            'aud_06_filler_ratio_pct': float(filler_per_min / max(estimated_wpm, 1.0) * 100.0),
+            'aud_06_filler_ratio_pct': float(filler_per_min / max(whitespace_wpm, 1.0) * 100.0),
             'aud_07_f0_mean_hz': float(np.mean(f0_arr)),
             'aud_08_f0_std_hz': float(np.std(f0_arr)),
             'aud_09_jitter_local_pct': float(np.clip(jitter_local, 0.1, 8.0)),
@@ -542,7 +821,6 @@ class AudioFeatureExtractor65D:
             'aud_11_hnr_mean_db': float(np.mean(hnr_arr)),
             'aud_12_hnr_std_db': float(np.std(hnr_arr)),
 
-            # 13-24: F0 Pitch Contour Statistics
             'aud_13_f0_min_hz': float(np.min(f0_arr)),
             'aud_14_f0_max_hz': float(np.max(f0_arr)),
             'aud_15_f0_range_hz': float(np.max(f0_arr) - np.min(f0_arr)),
@@ -556,7 +834,6 @@ class AudioFeatureExtractor65D:
             'aud_23_f0_slope_abs_mean': float(np.mean(np.abs(np.diff(f0_arr)))) if len(f0_arr) > 1 else 1.0,
             'aud_24_voiced_fraction': float(np.mean(voiced_mask)),
 
-            # 25-36: Energy & Pause Rhythm Dynamics
             'aud_25_rms_energy_mean': float(np.mean(rms_arr)),
             'aud_26_rms_energy_std': float(np.std(rms_arr)),
             'aud_27_rms_energy_max': float(np.max(rms_arr)),
@@ -570,7 +847,6 @@ class AudioFeatureExtractor65D:
             'aud_35_pause_max_sec': float(np.max(long_pauses)) if long_pauses else 0.0,
             'aud_36_dead_air_count': float(len(dead_air_pauses)),
 
-            # 37-49: Spectral Timbre & Voice Quality
             'aud_37_zcr_mean': float(np.mean(zcr_arr)),
             'aud_38_zcr_std': float(np.std(zcr_arr)),
             'aud_39_zcr_p90': float(np.percentile(zcr_arr, 90)),
@@ -586,7 +862,6 @@ class AudioFeatureExtractor65D:
             'aud_49_speech_continuity_ratio': float(1.0 - pause_ratio),
         }
 
-        # 50-65: 8 Sub-band Log Spectral Energies (Mean & Std = 16 features)
         feat_idx = 50
         for b_i in range(8):
             b_vals = np.array(band_energies[b_i], dtype=np.float64)
@@ -597,34 +872,119 @@ class AudioFeatureExtractor65D:
 
         assert len(aud) == 65, f"Expected 65 audio features, got {len(aud)}"
 
-        # Tạo dữ liệu theo từng giây cho Telemetry
+        # Tính F0 và WPM thực tế theo từng giây (cửa sổ trượt 10s cho WPM theo Mục 8.5 Kế hoạch, KHÔNG dùng random!)
         sec_f0 = {}
         sec_wpm = {}
         total_secs = int(math.ceil(duration_sec))
         frames_per_sec = max(1, int(round(1.0 / 0.02)))
+        peak_set = np.array(peak_frames, dtype=np.int64)
+
         for s in range(total_secs):
-            s_rms = rms_arr[s * frames_per_sec:(s + 1) * frames_per_sec]
-            if len(s_rms) > 0 and np.mean(s_rms) > thr_voice:
-                sec_f0[s] = round(float(np.mean(f0_arr) + np.random.normal(0, 5.0)), 1)
-                sec_wpm[s] = int(round(estimated_wpm + (float(np.mean(s_rms)) - float(np.mean(rms_arr))) * 180.0))
+            idx0 = s * frames_per_sec
+            idx1 = (s + 1) * frames_per_sec
+            s_rms = rms_arr[idx0:idx1]
+            s_f0 = f0_frame_arr[idx0:idx1]
+            voiced_f0 = s_f0[s_f0 > 0.0]
+
+            if len(voiced_f0) > 0:
+                sec_f0[s] = round(float(np.median(voiced_f0)), 1)
             else:
                 sec_f0[s] = 0.0
+
+            if len(s_rms) > 0 and float(np.mean(s_rms)) > thr_voice:
+                # Đếm số đỉnh âm tiết trong cửa sổ 10 giây xung quanh giây s [s-5, s+5]
+                win_start_sec = max(0, s - 5)
+                win_end_sec = min(total_secs, s + 5)
+                win_dur = max(win_end_sec - win_start_sec, 2.0)
+                f_lo = win_start_sec * frames_per_sec
+                f_hi = win_end_sec * frames_per_sec
+                peaks_in_win = int(np.sum((peak_set >= f_lo) & (peak_set < f_hi)))
+                local_wpm = (peaks_in_win * 0.42) / (win_dur / 60.0)
+                # Hiệu chỉnh theo tỷ lệ giữa WPM toàn bài và trung bình cửa sổ
+                sec_wpm[s] = int(round(np.clip(0.6 * whitespace_wpm + 0.4 * local_wpm, 60.0, 210.0)))
+            else:
                 sec_wpm[s] = 0
 
         return aud, sec_f0, sec_wpm, duration_sec
 
 
+def compute_srs_v1_1_scores(vis, aud, context="Academic"):
+    """
+    Chính sách điểm sản phẩm 'srs_v1_1' (score_mapping_v1) theo đúng Mục 11.1 & 11.2 Kế hoạch:
+    - Eye Contact (0.25): Đạt 100 khi tỷ lệ nhìn camera (front_ratio_total) >= 75%.
+    - Head Pose Stability (0.20): Đạt 100 khi tỷ lệ đầu ổn định >= 80%.
+    - Speech Rate (0.20): Đạt 100 trong 130-160 WPM.
+    - Filler Control (0.20): 0 filler/phút đạt 100; 5 filler/phút đạt 50; >5 dưới 50.
+    - Voice Energy (0.15): Dựa trên độ nghe rõ (voiced fraction), dynamic range RMS và biến thiên F0 IQR.
+    - Overall Score: Tổng có trọng số của đúng 5 tiêu chí trên (0.25 + 0.20 + 0.20 + 0.20 + 0.15 = 1.00).
+    """
+    # 1. Eye Contact (25%)
+    front_ratio = float(vis.get('vis_02_eye_contact_ratio', 0.0))
+    if front_ratio >= 0.75:
+        eye_score = 100.0
+    else:
+        eye_score = max(0.0, (front_ratio / 0.75) * 100.0)
+
+    # 2. Head Pose Stability (20%)
+    stability_ratio = float(1.0 - vis.get('vis_17_posture_violation_ratio', 0.0))
+    if stability_ratio >= 0.80:
+        head_score = 100.0
+    else:
+        head_score = max(0.0, (stability_ratio / 0.80) * 100.0)
+
+    # 3. Speech Rate (20%) - Chuẩn SRS: 130 - 160 WPM đạt tối đa
+    wpm = float(aud.get('aud_01_wpm_speech_rate', 130.0))
+    if 130.0 <= wpm <= 160.0:
+        speech_score = 100.0
+    elif wpm < 130.0:
+        speech_score = max(20.0, 100.0 - (130.0 - wpm) * 1.25)
+    else:
+        speech_score = max(20.0, 100.0 - (wpm - 160.0) * 1.25)
+
+    # 4. Filler Control (20%) - Chuẩn SRS: 0 filler/min -> 100; 5 filler/min -> 50; >5 -> dưới 50
+    filler_rate = float(aud.get('aud_05_filler_words_per_min', 0.0))
+    if filler_rate <= 0.05:
+        filler_score = 100.0
+    elif filler_rate <= 5.0:
+        filler_score = 100.0 - (filler_rate / 5.0) * 50.0
+    else:
+        filler_score = max(10.0, 50.0 - (filler_rate - 5.0) * 8.0)
+
+    # 5. Voice Energy (15%) - Kết hợp độ nghe rõ, dải động RMS (12-28 dB) và biến thiên ngữ điệu F0 IQR
+    voiced_frac = float(aud.get('aud_24_voiced_fraction', 0.6))
+    dyn_db = float(aud.get('aud_31_rms_dynamic_range_db', 18.0))
+    f0_iqr = float(aud.get('aud_21_f0_iqr_hz', 22.0))
+
+    clarity_sub = min(1.0, voiced_frac / 0.55) * 40.0
+    dyn_sub = (1.0 - min(1.0, abs(dyn_db - 20.0) / 16.0)) * 30.0
+    mod_sub = min(1.0, f0_iqr / 25.0) * 30.0
+    voice_energy_score = float(np.clip(clarity_sub + dyn_sub + mod_sub, 35.0, 100.0))
+
+    overall_srs = (
+        0.25 * eye_score
+        + 0.20 * head_score
+        + 0.20 * speech_score
+        + 0.20 * filler_score
+        + 0.15 * voice_energy_score
+    )
+
+    return {
+        "eye_contact": round(eye_score, 2),
+        "head_pose_stability": round(head_score, 2),
+        "speech_rate": round(speech_score, 2),
+        "filler_control": round(filler_score, 2),
+        "voice_energy": round(voice_energy_score, 2),
+        "overall_score": round(overall_srs, 2)
+    }
+
+
 def compute_scientific_rubric_scores(vis, aud, context):
     """
-    Tính 5 đầu điểm thành phần Rubric và Điểm tổng thể theo đúng công thức toán học
-    trong tài liệu CO_SO_KHOA_HOC_VA_BAI_BAO_CHUNG_MINH_CHAM_DIEM_PBL6.md:
-    - S_eye: Sigmoid-based penalty theo ngưỡng bối cảnh (tau_eye)
-    - S_posture: Tích phân phạt góc lệch > 15 độ và độ rung giật đầu
-    - S_smile: Đánh giá AU12 Smile & Facial Energy theo kỳ vọng từng bối cảnh
-    - S_speech: Hàm phân phối chuẩn Gauss khoảng cách tới WPM lý tưởng (Sweller 1988, Hincks 2005)
-    - S_filler: Công thức trừ điểm Toastmasters International
+    Hàm tính điểm mở rộng (bao gồm cả voice_energy_score của SRS và facial_expression_score mở rộng)
+    đảm bảo tương thích ngược 100% với các script huấn luyện và giao diện Dashboard hiện tại.
     """
-    # 1. Điểm Ánh mắt (S_eye)
+    srs_scores = compute_srs_v1_1_scores(vis, aud, context)
+
     tau_eye_map = {'do_an': 0.55, 'hung_bien': 0.48, 'pitching': 0.52}
     tau_eye = tau_eye_map.get(context, 0.52)
     r_eye = vis['vis_02_eye_contact_ratio']
@@ -632,29 +992,23 @@ def compute_scientific_rubric_scores(vis, aud, context):
     s_eye -= max(0.0, vis['vis_29_gaze_deviation_ratio'] - 0.35) * 15.0
     s_eye = float(np.clip(s_eye, 58.0, 97.5))
 
-    # 2. Điểm Tư thế Đầu (S_posture)
     viol_ratio = vis['vis_17_posture_violation_ratio']
     mean_dev = vis['vis_15_head_deviation_mean']
     jitter_avg = (vis['vis_18_head_jitter_yaw'] + vis['vis_19_head_jitter_pitch']) * 0.5
     s_posture = 95.0 - viol_ratio * 28.0 - max(0.0, mean_dev - 8.0) * 1.1 - max(0.0, jitter_avg - 2.0) * 2.5
     s_posture = float(np.clip(s_posture, 60.0, 97.5))
 
-    # 3. Điểm Biểu cảm & Nụ cười (S_smile)
     smile_ratio = vis['vis_10_smile_active_ratio']
     facial_energy = vis['vis_55_facial_energy_index']
     if context == 'do_an':
-        # Đồ án: Điềm tĩnh, tự tin (mỉm cười 10% - 35% là đẹp)
         dist = abs(smile_ratio - 0.22)
         s_smile = 92.0 - dist * 45.0 + min(6.0, facial_energy * 20.0)
     elif context == 'hung_bien':
-        # Hùng biện: Biểu cảm phong phú, sinh động
         s_smile = 72.0 + min(22.0, smile_ratio * 45.0) + min(8.0, facial_energy * 25.0)
     else:
-        # Pitching: Rạng rỡ, năng lượng thu hút nhà đầu tư
         s_smile = 70.0 + min(25.0, smile_ratio * 50.0) + min(6.0, facial_energy * 20.0)
     s_smile = float(np.clip(s_smile, 50.0, 98.0))
 
-    # 4. Điểm Tốc độ nói & Nhịp điệu (S_speech)
     ideal_wpm_map = {'do_an': (122.0, 22.0), 'hung_bien': (132.0, 28.0), 'pitching': (145.0, 25.0)}
     mu_wpm, sigma_wpm = ideal_wpm_map.get(context, (130.0, 25.0))
     wpm = aud['aud_01_wpm_speech_rate']
@@ -664,25 +1018,26 @@ def compute_scientific_rubric_scores(vis, aud, context):
     s_speech = (62.0 + 34.0 * gauss_wpm + f0_bonus) * (1.0 - dead_air_pen)
     s_speech = float(np.clip(s_speech, 48.0, 98.0))
 
-    # 5. Điểm Kiểm soát Từ đệm (S_filler - Toastmasters International)
     f_rate = aud['aud_05_filler_words_per_min']
     f_allow = 1.8
     s_filler = 96.0 - 5.5 * max(0.0, f_rate - f_allow)
     s_filler = float(np.clip(s_filler, 58.0, 97.5))
 
-    # 6. Hợp nhất Điểm Tổng thể theo Ma trận Trọng số Bối cảnh (W_context)
+    # Hợp nhất Điểm Tổng thể theo Ma trận Trọng số Bối cảnh chuẩn của dự án (do_an, hung_bien, pitching)
     weights_map = {
         'do_an':     (0.25, 0.20, 0.10, 0.25, 0.20),
         'hung_bien': (0.20, 0.15, 0.20, 0.25, 0.20),
         'pitching':  (0.25, 0.15, 0.25, 0.20, 0.15)
     }
-    w1, w2, w3, w4, w5 = weights_map.get(context, (0.20, 0.20, 0.20, 0.20, 0.20))
+    w1, w2, w3, w4, w5 = weights_map.get(context, (0.25, 0.20, 0.10, 0.25, 0.20))
     overall = w1 * s_eye + w2 * s_posture + w3 * s_smile + w4 * s_speech + w5 * s_filler
+    s_voice_energy = srs_scores["voice_energy"]
 
     return {
         'eye_contact_score': round(s_eye, 2),
         'head_posture_score': round(s_posture, 2),
         'facial_expression_score': round(s_smile, 2),
+        'voice_energy_score': round(s_voice_energy, 2),
         'speech_rate_score': round(s_speech, 2),
         'filler_control_score': round(s_filler, 2),
         'overall_score': round(overall, 2)
@@ -690,7 +1045,7 @@ def compute_scientific_rubric_scores(vis, aud, context):
 
 
 def build_telemetry_timeseries(df_vis_frames, sec_f0, sec_wpm):
-    """Tạo chuỗi JSONB telemetry_timeseries theo từng giây khớp chuẩn Database Schema."""
+    """Tạo chuỗi JSONB telemetry_timeseries theo từng giây (có cả timestamp_sec và start_ms)."""
     telemetry = []
     df_vis_frames['sec_int'] = df_vis_frames['timestamp_sec'].apply(lambda x: int(round(x)))
     grouped = df_vis_frames.groupby('sec_int')
@@ -702,10 +1057,10 @@ def build_telemetry_timeseries(df_vis_frames, sec_f0, sec_wpm):
         eye_ok = bool(grp['eye_contact'].mean() >= 0.5)
         smile_val = round(float(grp['smile_au12'].mean()), 3)
         f0_val = float(sec_f0.get(sec, 0.0))
-        wpm_val = int(sec_wpm.get(sec, 125))
+        wpm_val = int(sec_wpm.get(sec, 0))
 
         violations = []
-        if abs(yaw) > 18.0 or abs(pitch) > 16.0:
+        if abs(yaw) >= 15.0 or abs(pitch) >= 15.0:
             violations.append(f"Lệch tư thế đầu (Yaw={yaw}°, Pitch={pitch}°)")
         if not eye_ok:
             violations.append("Mất tương tác ánh mắt với camera")
@@ -714,6 +1069,7 @@ def build_telemetry_timeseries(df_vis_frames, sec_f0, sec_wpm):
 
         item = {
             "timestamp_sec": float(sec),
+            "start_ms": int(sec * 1000),
             "head_pose": {"yaw": yaw, "pitch": pitch, "roll": roll},
             "eye_contact": eye_ok,
             "smile_intensity": smile_val,
@@ -728,14 +1084,14 @@ def build_telemetry_timeseries(df_vis_frames, sec_f0, sec_wpm):
     return telemetry
 
 
-def run_extraction_pipeline(sample_fps=2.0, force_recompute=False):
+def run_extraction_pipeline(sample_fps=5.0, force_recompute=False):
     print("=" * 80)
     print("   BƯỚC 1: PIPELINE TRÍCH XUẤT VECTOR 123 CHIỀU TỪ VIDEO THỰC TẾ (DUT-PresCorpus)")
     print("=" * 80)
     ensure_directories_and_weights()
 
     vis_extractor = VisionFeatureExtractor55D()
-    aud_extractor = AudioFeatureExtractor65D()
+    aud_extractor = AudioFeatureExtractor65D(enable_asr=False)
 
     contexts = ['do_an', 'hung_bien', 'pitching']
     video_items = []
@@ -758,10 +1114,6 @@ def run_extraction_pipeline(sample_fps=2.0, force_recompute=False):
             })
 
     print(f"[*] Tìm thấy {len(video_items)} video hợp lệ trong {RAW_CORPUS_DIR}")
-    for ctx in contexts:
-        cnt = sum(1 for v in video_items if v['context'] == ctx)
-        print(f"    - Bối cảnh '{ctx}': {cnt} video")
-
     real_csv_path = os.path.join(FEATURES_DIR, "dut_prescorpus_real_123d.csv")
     existing_rows_map = {}
     if not force_recompute and os.path.exists(real_csv_path):
@@ -812,29 +1164,22 @@ def run_extraction_pipeline(sample_fps=2.0, force_recompute=False):
         t0 = time.perf_counter()
         print(f"\n[{idx:02d}/{len(video_items):02d}] Đang xử lý MỚI {vid_id} ({ctx}) -> {os.path.basename(vpath)}...")
 
-        # 1. Tách WAV 16kHz
         ok_wav = extract_audio_16k(vpath, wav_path)
         if not ok_wav:
             print(f"    [!] Lỗi tách âm thanh cho {vid_id}, bỏ qua.")
             continue
 
-        # 2. Trích xuất 55D Vision
         vis_55d, df_vis_frames = vis_extractor.process_video(vpath, sample_fps=sample_fps)
-
-        # 3. Trích xuất 65D Audio
         aud_65d, sec_f0, sec_wpm, dur_sec = aud_extractor.process_audio(wav_path)
 
-        # 4. Mã hóa 3D Context One-Hot
         ctx_3d = {
             'ctx_01_do_an': 1.0 if ctx == 'do_an' else 0.0,
             'ctx_02_hung_bien': 1.0 if ctx == 'hung_bien' else 0.0,
             'ctx_03_pitching': 1.0 if ctx == 'pitching' else 0.0,
         }
 
-        # 5. Tính điểm chuẩn theo công thức toán học bảo chứng
         scores = compute_scientific_rubric_scores(vis_55d, aud_65d, ctx)
 
-        # 6. Lưu Telemetry JSON & Speech Analysis JSON
         telemetry_data = build_telemetry_timeseries(df_vis_frames, sec_f0, sec_wpm)
         with open(tele_path, 'w', encoding='utf-8') as f:
             json.dump(telemetry_data, f, ensure_ascii=False, indent=2)
@@ -853,7 +1198,6 @@ def run_extraction_pipeline(sample_fps=2.0, force_recompute=False):
         with open(trans_path, 'w', encoding='utf-8') as f:
             json.dump(speech_summary, f, ensure_ascii=False, indent=2)
 
-        # 7. Đóng gói Vector 123D + Metadata + Targets
         row_123d = {'video_id': vid_id, 'presentation_context': ctx}
         row_123d.update(ctx_3d)
         row_123d.update(vis_55d)
@@ -873,7 +1217,7 @@ def run_extraction_pipeline(sample_fps=2.0, force_recompute=False):
         elapsed = time.perf_counter() - t0
         print(
             f"    -> Hoàn tất trong {elapsed:.2f}s | Eye={scores['eye_contact_score']} | "
-            f"Posture={scores['head_posture_score']} | Smile={scores['facial_expression_score']} | "
+            f"Posture={scores['head_posture_score']} | VoiceEnergy={scores['voice_energy_score']} | "
             f"Speech={scores['speech_rate_score']} | Filler={scores['filler_control_score']} "
             f"=> OVERALL = {scores['overall_score']}"
         )
@@ -887,28 +1231,15 @@ def run_extraction_pipeline(sample_fps=2.0, force_recompute=False):
     df_real.to_csv(real_csv_path, index=False, encoding='utf-8-sig')
     df_rubric.to_csv(rubric_csv_path, index=False, encoding='utf-8-sig')
 
-    # Đồng bộ sang cả thư mục PBL6_TaiLieu nếu tồn tại
-    if os.path.exists(TAILIEU_ROOT):
-        tl_feat_dir = os.path.join(TAILIEU_ROOT, "data", "DUT-PresCorpus", "features_120d")
-        tl_anno_dir = os.path.join(TAILIEU_ROOT, "data", "DUT-PresCorpus", "annotations")
-        os.makedirs(tl_feat_dir, exist_ok=True)
-        os.makedirs(tl_anno_dir, exist_ok=True)
-        df_real.to_csv(os.path.join(tl_feat_dir, "dut_prescorpus_real_123d.csv"), index=False, encoding='utf-8-sig')
-        df_rubric.to_csv(os.path.join(tl_anno_dir, "rubric_scores.csv"), index=False, encoding='utf-8-sig')
-
     print("\n" + "=" * 80)
     print(f"[SUCCESS] ĐÃ TRÍCH XUẤT XONG {len(df_real)} VIDEO THỰC TẾ (123 CHIỀU ĐẶC TRƯNG)!")
-    print(f"  1. Audio WAV 16kHz   : {AUDIO_16K_DIR} ({len(df_real)} files)")
-    print(f"  2. Telemetry JSON    : {TELEMETRY_DIR} ({len(df_real)} files)")
-    print(f"  3. Speech Analysis   : {TRANSCRIPTS_DIR} ({len(df_real)} files)")
-    print(f"  4. Vector 123D CSV   : {real_csv_path}")
-    print(f"  5. Bảng điểm Rubric  : {rubric_csv_path}")
     print("=" * 80)
     return real_csv_path, rubric_csv_path
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Trích xuất đặc trưng 123D từ bộ video DUT-PresCorpus")
-    parser.add_argument("--fps", type=float, default=1.5, help="Số frame lấy mẫu mỗi giây (mặc định 1.5 FPS để chạy nhanh)")
+    parser.add_argument("--fps", type=float, default=5.0, help="Số frame lấy mẫu mỗi giây (mặc định 5.0 FPS chuẩn Kế hoạch)")
+    parser.add_argument("--force", action="store_true", help="Buộc tính toán lại toàn bộ video")
     args = parser.parse_args()
-    run_extraction_pipeline(sample_fps=args.fps)
+    run_extraction_pipeline(sample_fps=args.fps, force_recompute=args.force)

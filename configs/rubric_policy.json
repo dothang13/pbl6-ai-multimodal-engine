@@ -1,0 +1,72 @@
+{
+  "schema_version": "1.1",
+  "policy_id": "pbl6_context_aware_v1",
+  "score_mapping_version": "mapping_context_v1",
+  "description": "Chính sách chấm điểm Đa Bối cảnh chuẩn thực tế của dự án PBL6 (3 bối cảnh chính thức: do_an, hung_bien, pitching - ưu tiên hơn bản nháp SRS cũ)",
+  "input_constraints": {
+    "min_duration_sec": 15.0,
+    "recommended_min_duration_sec": 60.0,
+    "max_duration_sec": 300.0,
+    "max_file_size_mb": 100,
+    "allowed_formats": [".mp4", ".webm"],
+    "min_face_coverage_ratio": 0.80,
+    "min_voiced_ratio": 0.12
+  },
+  "contexts": {
+    "do_an": {
+      "aliases": ["do_an", "academic", "doan"],
+      "display_name_vi": "Thuyết trình Đồ án & Bảo vệ Học thuật (do_an)",
+      "ideal_wpm_range": [115, 135],
+      "target_eye_contact_ratio": 0.70,
+      "max_head_angle_deg": 15.0,
+      "weights": {
+        "eye_contact_score": 0.25,
+        "head_posture_score": 0.20,
+        "facial_expression_score": 0.10,
+        "speech_rate_score": 0.25,
+        "filler_control_score": 0.20
+      }
+    },
+    "hung_bien": {
+      "aliases": ["hung_bien", "hungbien", "public_speaking", "debate"],
+      "display_name_vi": "Hùng biện & Diễn thuyết Công chúng (hung_bien)",
+      "ideal_wpm_range": [125, 150],
+      "target_eye_contact_ratio": 0.65,
+      "max_head_angle_deg": 15.0,
+      "weights": {
+        "eye_contact_score": 0.20,
+        "head_posture_score": 0.15,
+        "facial_expression_score": 0.20,
+        "speech_rate_score": 0.25,
+        "filler_control_score": 0.20
+      }
+    },
+    "pitching": {
+      "aliases": ["pitching", "startup_pitching"],
+      "display_name_vi": "Pitching Gọi vốn Khởi nghiệp (pitching)",
+      "ideal_wpm_range": [135, 155],
+      "target_eye_contact_ratio": 0.70,
+      "max_head_angle_deg": 15.0,
+      "weights": {
+        "eye_contact_score": 0.25,
+        "head_posture_score": 0.15,
+        "facial_expression_score": 0.25,
+        "speech_rate_score": 0.20,
+        "filler_control_score": 0.15
+      }
+    }
+  },
+  "filler_lexicon": {
+    "nonlexical_fillers": ["ờ", "ừm", "ờm", "à", "ư", "ừ"],
+    "discourse_fillers": ["kiểu như", "thì là", "nói chung là"],
+    "context_dependent_words": ["thì", "là", "dạ"]
+  },
+  "llm_coach_config": {
+    "default_model": "gemini-2.5-flash",
+    "candidate_models": ["gemini-2.5-flash", "gemini-2.0-flash"],
+    "timeout_sec": 10,
+    "max_retries": 1,
+    "privacy_mode": "evidence_only",
+    "fallback_mode": "rule_fallback"
+  }
+}
