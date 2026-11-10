@@ -69,7 +69,29 @@ Bảng dưới đây đối chiếu trực tiếp 4 cấu hình mô hình ASR đ
 
 ---
 
-## 3. LẬP LUẬN KHOA HỌC (ABLATION STUDY): VÌ SAO CHỌN PHOWHISPER + EXTENDED LORA THAY VÌ MÔ HÌNH KHÁC?
+## 3. BẢNG THÔNG SỐ KIẾN TRÚC MÔ HÌNH CHI TIẾT (DEEP ARCHITECTURAL COMPARISON)
+
+Để phục vụ báo cáo kỹ thuật chuyên sâu và trả lời các câu hỏi khắt khe của Hội đồng bảo vệ về mặt thiết kế mạng nơ-ron (Layers, Attention Heads, Hidden Dimensions, Target Modules, Cơ chế chống quên), bảng dưới đây bóc tách toàn bộ thông số hình học kiến trúc (Architecture Specifications) của các mô hình trong các bài báo được đối chiếu so với thiết kế của đề tài:
+
+| Thông số Kiến trúc (Architecture Specs) | 1. Wav2Vec 2.0 Base Vi (Baevski et al. / XLS-R) | 2. PhoWhisper-small (Le et al., ICLR 2024 - Base Model) | 3. CrisperWhisper (Wagner et al., Interspeech 2024) | 4. ChunkFormer-Large (Le et al., ICASSP 2025) | 5. ĐỀ TÀI PBL6: PhoWhisper-small + Extended Cross-Attn LoRA + CatBoost 123D |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Loại hình Kiến trúc** | Encoder-only + CTC Projection Head | Encoder-Decoder Transformer | Encoder-Decoder Transformer | Conformer Encoder (Masked Chunking) + CTC | **Encoder-Decoder Transformer + Extended LoRA Adapter + Oblivious Trees (CatBoost)** |
+| **Tổng số tham số (Total Params)** | ~95M (24M CNN + 71M Transformer) | 241.7M (~244M) | 1.54B (Whisper-large-v2 geometry) | ~110M | **241.7M Base (Đóng băng 100%) + 4.3M LoRA (Chỉ train 1.78%)** |
+| **Số tầng Encoder / Decoder (Layers)** | 12 Encoder layers (Không có Decoder) | 12 Encoder / 12 Decoder | 32 Encoder / 32 Decoder | 17 Conformer blocks (8x Subsampling) | **12 Encoder / 12 Decoder** |
+| **Kích thước Ẩn ($d_{\text{model}}$ / Hidden Size)** | 768 | 768 | 1280 | 512 | **768** |
+| **Số đầu Attention (Attention Heads)** | 8 heads | 12 heads | 20 heads | 8 heads | **12 heads** |
+| **Kích thước tầng FFN ($d_{\text{ffn}}$)** | 3,072 | 3,072 | 5,120 | 2,048 | **3,072** |
+| **Độ phân giải đầu vào Âm thanh** | Raw Audio Waveform 16kHz (CNN 7 layers stride 320) | 80-channel Log-Mel Spectrogram (25ms window, 10ms hop) | 80-channel Log-Mel Spectrogram (25ms window, 10ms hop) | 80-channel Log-Mel Spectrogram (Masked context [128, 64, 128]) | **80-channel Log-Mel Spectrogram (25ms window, 10ms hop)** |
+| **Can thiệp Kiến trúc PEFT (LoRA Configuration)** | Không (Full Fine-tuning) | Không (Full Fine-tuning toàn bộ 241.7M) | Huấn luyện lại toàn bộ + sửa đổi Tokenizer 51,896 tokens | Không (Full Fine-tuning) | **Rank $r = 16$, $\alpha = 32$, Dropout $0.05$** |
+| **Các tầng can thiệp LoRA (Target Modules)** | Không áp dụng | Không áp dụng | Không áp dụng (Full weights) | Không áp dụng | **Toàn diện 6 tầng:**<br>• Self-Attn: `q_proj`, `k_proj`, `v_proj`<br>• **Cross-Attn:** `encoder_attn.q_proj`, `encoder_attn.k_proj`, `encoder_attn.v_proj`, `encoder_attn.out_proj`<br>• **FFN:** `fc1`, `fc2` |
+| **Hàm Mất mát (Loss Function)** | Connectionist Temporal Classification (CTC Loss) | Standard Cross-Entropy Loss (Uniform Token Weighting) | Cross-Entropy + Dynamic Time Warping (DTW) Timestamp Loss | Hybrid CTC / RNN-Transducer Loss | **Filler-Aware Weighted Cross-Entropy Loss ($\gamma_{\text{filler}} = 1.5$)** |
+| **Bộ từ vựng / Tokenizer** | Char / Syllable BPE (~2,048 tokens) | Byte-level BPE (51,865 tokens) | Sửa đổi 51,896 tokens (Bổ sung 31 tag sự kiện `[UM]`, `[UH]`) | WordPiece / SentencePiece (5,000 tokens) | **PhoWhisper Byte-level BPE + Ranh giới từ độc lập (Word-boundary matching)** |
+| **VRAM Huấn luyện & Thời gian Epoch** | ~9.5 GB (Train ~45 phút) | ~15.2 GB (Tràn VRAM trên Colab T4) | > 24 GB (Bắt buộc cụm A100/H100) | ~11.0 GB | **5.5 GB VRAM (Chạy mượt 100% trên Colab T4 15GB, ~8 phút/epoch)** |
+| **Tầng Chấm điểm & Giải thích** | Không có (Chỉ là bộ ASR) | Không có (Chỉ là bộ ASR) | Không có (Chỉ là bộ ASR) | Không có (Chỉ là bộ ASR) | **CatBoost Regressor (depth=4, l2_reg=10) trên 123D + SHAP TreeExplainer ($<50\text{ms}$/video)** |
+
+---
+
+## 4. LẬP LUẬN KHOA HỌC (ABLATION STUDY): VÌ SAO CHỌN PHOWHISPER + EXTENDED LORA THAY VÌ MÔ HÌNH KHÁC?
 
 Đây là phần lập luận cốt lõi để bảo vệ trước Hội đồng Chấm Đồ án khi giảng viên đặt câu hỏi: *"Tại sao nhóm không dùng Wav2Vec 2.0 hay Fine-tune toàn bộ PhoWhisper mà lại chọn thiết kế PhoWhisper kết hợp kiến trúc LoRA mở rộng?"*
 
